@@ -27,8 +27,15 @@ class RegisterSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password')
         role = validated_data.pop('role')
         
+        import uuid
+        
+        # Generate a temporary Clerk ID for local registration
+        # In a real Clerk flow, registration happens on frontend and syncs via webhook/token
+        clerk_user_id = f"local_{uuid.uuid4()}"
+        
         user = User.objects.create_user(
             email=validated_data['email'],
+            clerk_user_id=clerk_user_id,
             password=password,
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', ''),

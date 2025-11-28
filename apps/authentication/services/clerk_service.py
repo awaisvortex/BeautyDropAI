@@ -6,6 +6,7 @@ import jwt
 from django.conf import settings
 from typing import Optional, Dict, Any
 import logging
+from apps.core.utils.constants import USER_ROLE_CLIENT, USER_ROLE_CUSTOMER
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,17 @@ class ClerkService:
             email_addresses[0]['email_address'] if email_addresses else ''
         )
         
+        # Extract role from public_metadata or unsafe_metadata
+        # Default to customer if not specified or invalid
+        public_metadata = clerk_user_data.get('public_metadata', {})
+        unsafe_metadata = clerk_user_data.get('unsafe_metadata', {})
+        
+        clerk_role = public_metadata.get('role') or unsafe_metadata.get('role', '')
+        
+        role = USER_ROLE_CUSTOMER
+        if clerk_role == 'client':
+            role = USER_ROLE_CLIENT
+        
         return {
             'clerk_user_id': clerk_user_data.get('id'),
             'email': primary_email,
@@ -103,6 +115,7 @@ class ClerkService:
             'last_name': clerk_user_data.get('last_name', ''),
             'avatar_url': clerk_user_data.get('image_url', ''),
             'email_verified': any(email.get('verification', {}).get('status') == 'verified' for email in email_addresses),
+            'role': role,
         }
 
 

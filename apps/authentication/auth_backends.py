@@ -8,6 +8,7 @@ import jwt
 import requests
 
 from .models import User
+from .services.clerk_service import clerk_service
 
 
 class ClerkJWTAuthentication(authentication.BaseAuthentication):
@@ -42,13 +43,24 @@ class ClerkJWTAuthentication(authentication.BaseAuthentication):
             if not clerk_user_id:
                 return None
             
-            user, created = User.objects.get_or_create(
-                clerk_user_id=clerk_user_id,
-                defaults={
-                    'email': email or f'{clerk_user_id}@clerk.temp',
-                    'email_verified': decoded.get('email_verified', False),
-                }
-            )
+            # Check if user exists
+            try:
+                user = User.objects.get(clerk_user_id=clerk_user_id)
+            except User.DoesNotExist:
+                # User doesn't exist, fetch from Clerk to get role and other details
+                clerk_user_data = clerk_service.get_user(clerk_user_id)
+                
+                if clerk_user_data:
+                    user_data = clerk_service.sync_user_data(clerk_user_data)
+                    user = User.objects.create(**user_data)
+                else:
+                    # Fallback if Clerk API fails (shouldn't happen if token is valid but possible)
+                    # Create basic user with default role (customer)
+                    user = User.objects.create(
+                        clerk_user_id=clerk_user_id,
+                        email=email or f'{clerk_user_id}@clerk.temp',
+                        email_verified=decoded.get('email_verified', False)
+                    )
             
             return (user, None)
             
