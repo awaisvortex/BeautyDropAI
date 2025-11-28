@@ -192,8 +192,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Schedules - Public', 'description': 'Public availability checking'},
         {'name': 'Bookings - Customer', 'description': 'Customer booking management'},
         {'name': 'Bookings - Client', 'description': 'Salon owner booking management'},
-        {'name': 'Payments - Customer', 'description': 'Customer payment and subscription'},
-        {'name': 'Payments - Client', 'description': 'Salon owner payment management'},
+        {'name': 'Platform Subscriptions', 'description': 'Salon owner platform subscriptions'},
     ],
     'SECURITY': [
         {

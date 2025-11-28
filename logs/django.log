@@ -2543,3 +2543,18 @@ INFO 2025-11-28 16:10:13,559 autoreload D:\Vortex\apps\subscriptions\views.py ch
 INFO 2025-11-28 16:10:13,606 autoreload D:\Vortex\apps\subscriptions\views.py changed, reloading.
 INFO 2025-11-28 16:10:15,693 autoreload Watching for file changes with StatReloader
 INFO 2025-11-28 16:10:15,694 autoreload Watching for file changes with StatReloader
+INFO 2025-11-28 16:19:04,986 autoreload Watching for file changes with StatReloader
+INFO 2025-11-28 16:22:09,432 autoreload Watching for file changes with StatReloader
+INFO 2025-11-28 16:23:13,313 basehttp "GET /api/docs HTTP/1.1" 301 0
+INFO 2025-11-28 16:23:13,345 basehttp "GET /api/docs/ HTTP/1.1" 200 4651
+INFO 2025-11-28 16:23:14,887 basehttp "GET /api/schema/ HTTP/1.1" 200 225589
+INFO 2025-11-28 16:23:47,394 basehttp "GET /api/docs/ HTTP/1.1" 200 4651
+INFO 2025-11-28 16:23:48,773 basehttp "GET /api/schema/ HTTP/1.1" 200 225589
+INFO 2025-11-28 16:33:58,937 basehttp "GET /api/docs/ HTTP/1.1" 200 4651
+INFO 2025-11-28 16:33:59,375 basehttp "GET /api/schema/ HTTP/1.1" 200 225589
+INFO 2025-11-28 16:35:19,463 autoreload D:\Vortex\config\settings\base.py changed, reloading.
+INFO 2025-11-28 16:35:19,463 autoreload D:\Vortex\config\settings\base.py changed, reloading.
+INFO 2025-11-28 16:35:21,085 autoreload Watching for file changes with StatReloader
+INFO 2025-11-28 16:35:21,092 autoreload Watching for file changes with StatReloader
+INFO 2025-11-28 16:36:56,974 basehttp "GET /api/docs/ HTTP/1.1" 200 4651
+INFO 2025-11-28 16:36:57,753 basehttp "GET /api/schema/ HTTP/1.1" 200 225471

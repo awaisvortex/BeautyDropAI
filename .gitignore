@@ -1,75 +1,80 @@
-# # Python
-# __pycache__/
-# *.py[cod]
-# *$py.class
-# *.so
-# .Python
-# build/
-# develop-eggs/
-# dist/
-# downloads/
-# eggs/
-# .eggs/
-# lib/
-# lib64/
-# parts/
-# sdist/
-# var/
-# wheels/
-# *.egg-info/
-# .installed.cfg
-# *.egg
-# MANIFEST
+# --- Python & Django Core ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.installed.cfg
+*.egg
+*.egg-info/
+eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.manifest
+lib/
+lib64/
 
-# # Virtual Environment
-# venv/
-# env/
-# ENV/
-# env.bak/
-# venv.bak/
-# .venv/
+# --- Virtual Environments ---
+# It is critical to ignore these to avoid pushing thousands of library files
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
 
-# # Poetry
-# poetry.lock
-# .poetry/
-# dist/
-# *.egg-info/
+# --- Database ---
+# SQLite databases should strictly stay local
+*.sqlite3
+*.sqlite3-journal
+*.db
 
-# # Django
-# *.log
-# local_settings.py
-# db.sqlite3
-# db.sqlite3-journal
-# /media
-# /staticfiles
-# /static
+# --- Django Media & Static ---
+# Ignore user-uploaded media and collected static files
+/media/
+/staticfiles/
+# Keep the static folder but ignore content if you use a build process, 
+# otherwise keep /static/ if it contains your source CSS/JS.
+# /static/ 
 
-# # Environment Variables
-# .env
-# .env.local
-# .env.*.local
+# --- Logs ---
+# Ignore all log files and the specific logs directory
+*.log
+logs/
 
-# # IDE
-# .vscode/
-# .idea/
-# *.swp
-# *.swo
-# *~
-# .DS_Store
+# --- Testing & Coverage ---
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+nosetests.xml
+coverage.xml
 
-# # Testing
-# .pytest_cache/
-# .coverage
-# htmlcov/
-# .tox/
+# --- Environment Variables (Security Risk) ---
+# NEVER push these. They contain API keys (Stripe, Clerk, DB passwords)
+.env
+.env.local
+.env.*.local
+local_settings.py
 
-# # Celery
-# celerybeat-schedule
-# celerybeat.pid
+# --- IDE & Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 
-# # Database
-# *.db
+# --- Celery ---
+celerybeat-schedule
+celerybeat.pid
 
-# # Logs
-# logs/
-# *.log
+# --- Build Artifacts ---
+build/
+develop-eggs/
+dist/
+downloads/
