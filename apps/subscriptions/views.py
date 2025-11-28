@@ -35,7 +35,7 @@ class SubscriptionViewSet(viewsets.ReadOnlyModelViewSet):
         summary="List subscriptions",
         description="Get current user's subscriptions",
         responses={200: SubscriptionSerializer(many=True)},
-        tags=['Payments - Customer']
+        tags=['Platform Subscriptions']
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)

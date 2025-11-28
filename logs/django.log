@@ -2537,3 +2537,9 @@ INFO 2025-11-28 15:21:28,258 autoreload D:\Vortex\apps\subscriptions\views.py ch
 INFO 2025-11-28 15:21:28,554 autoreload D:\Vortex\apps\subscriptions\views.py changed, reloading.
 INFO 2025-11-28 15:21:29,391 autoreload Watching for file changes with StatReloader
 INFO 2025-11-28 15:21:29,699 autoreload Watching for file changes with StatReloader
+INFO 2025-11-28 16:07:00,242 basehttp "GET /api/docs/ HTTP/1.1" 200 4651
+INFO 2025-11-28 16:07:01,157 basehttp "GET /api/schema/ HTTP/1.1" 200 225586
+INFO 2025-11-28 16:10:13,559 autoreload D:\Vortex\apps\subscriptions\views.py changed, reloading.
+INFO 2025-11-28 16:10:13,606 autoreload D:\Vortex\apps\subscriptions\views.py changed, reloading.
+INFO 2025-11-28 16:10:15,693 autoreload Watching for file changes with StatReloader
+INFO 2025-11-28 16:10:15,694 autoreload Watching for file changes with StatReloader
