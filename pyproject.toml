@@ -1,0 +1,183 @@
+[tool.poetry]
+name = "beauty-drop-ai"
+version = "1.0.0"
+description = "Beauty Drop AI - AI-powered beauty salon booking marketplace with smart scheduling"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{include = "apps"}, {include = "config"}, {include = "infrastructure"}]
+
+[tool.poetry.dependencies]
+python = "^3.13.7"
+
+# Django Core
+django = "^5.0.1"
+djangorestframework = "^3.14.0"
+djangorestframework-simplejwt = "^5.3.1"
+django-cors-headers = "^4.3.1"
+django-environ = "^0.11.2"
+
+# Database
+psycopg2-binary = "^2.9.9"
+dj-database-url = "^2.1.0"
+
+# Redis & Caching
+redis = "^5.0.1"
+django-redis = "^5.4.0"
+
+# Authentication & Security
+pyjwt = "^2.8.0"
+cryptography = "^43.0.1"
+requests = "^2.31.0"
+clerk-backend-api = "^1.2.5"
+
+# Stripe Payment
+stripe = "^8.0.0"
+
+# Celery (Task Queue)
+celery = "^5.3.6"
+django-celery-beat = "^2.5.0"
+django-celery-results = "^2.5.1"
+
+# Filtering & Search
+django-filter = "^23.5"
+
+# Utilities
+python-dateutil = "^2.8.2"
+pytz = "^2024.1"
+pillow = "^10.2.0"
+
+# API Documentation
+drf-spectacular = "^0.27.1"
+
+# Environment Variables
+python-dotenv = "^1.0.1"
+
+# Production Server
+gunicorn = "^21.2.0"
+whitenoise = "^6.6.0"
+
+[tool.poetry.group.dev.dependencies]
+# Testing
+pytest = "^8.0.0"
+pytest-django = "^4.7.0"
+pytest-cov = "^4.1.0"
+pytest-asyncio = "^0.23.0"
+factory-boy = "^3.3.0"
+
+# Code Quality
+black = "^24.1.1"
+flake8 = "^7.0.0"
+isort = "^5.13.2"
+mypy = "^1.8.0"
+pylint = "^3.0.3"
+autopep8 = "^2.0.4"
+
+# Development Tools
+ipython = "^8.20.0"
+django-extensions = "^3.2.3"
+django-debug-toolbar = "^4.2.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.0.0"
+pytest-django = "^4.7.0"
+pytest-cov = "^4.1.0"
+pytest-mock = "^3.12.0"
+coverage = "^7.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py313']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | migrations
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+known_first_party = ["apps", "config", "infrastructure"]
+skip = ["migrations", "venv", ".venv"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.testing"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+testpaths = ["apps", "tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=apps",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+
+[tool.coverage.run]
+source = ["apps"]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "*/__init__.py",
+    "*/admin.py",
+    "*/apps.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_optional = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "*.migrations.*"
+ignore_errors = true
+
+[tool.pylint.messages_control]
+disable = [
+    "C0111",  # missing-docstring
+    "C0103",  # invalid-name
+    "R0903",  # too-few-public-methods
+    "R0913",  # too-many-arguments
+]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.django-stubs]
+django_settings_module = "config.settings.development"
