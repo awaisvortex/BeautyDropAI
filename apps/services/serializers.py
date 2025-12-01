@@ -21,7 +21,7 @@ class ServiceSerializer(serializers.ModelSerializer):
 
 class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating services"""
-    shop_id = serializers.IntegerField(write_only=True, required=False)
+    shop_id = serializers.UUIDField(write_only=True, required=False)
     
     class Meta:
         model = Service

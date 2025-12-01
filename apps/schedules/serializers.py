@@ -12,12 +12,35 @@ class ShopScheduleSerializer(serializers.ModelSerializer):
     """Serializer for ShopSchedule model"""
     shop_name = serializers.CharField(source='shop.name', read_only=True)
     
+    @extend_schema_field(serializers.DateField)
+    def get_next_occurrence(self, obj):
+        """Calculate the next date this schedule will be active"""
+        from datetime import datetime, timedelta
+        
+        days_map = {
+            'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+            'friday': 4, 'saturday': 5, 'sunday': 6
+        }
+        
+        today = datetime.now().date()
+        target_day_num = days_map[obj.day_of_week.lower()]
+        current_day_num = today.weekday()
+        
+        days_ahead = target_day_num - current_day_num
+        if days_ahead <= 0:  # Target day already happened this week or is today
+            days_ahead += 7
+            
+        next_date = today + timedelta(days=days_ahead)
+        return next_date.isoformat()
+    
+    next_occurrence = serializers.SerializerMethodField()
+    
     class Meta:
         model = ShopSchedule
         fields = [
             'id', 'shop', 'shop_name', 'day_of_week',
             'start_time', 'end_time', 'slot_duration_minutes',
-            'is_active', 'created_at', 'updated_at'
+            'is_active', 'next_occurrence', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'shop', 'created_at', 'updated_at']
     
@@ -30,10 +53,11 @@ class ShopScheduleSerializer(serializers.ModelSerializer):
 
 class ShopScheduleCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating shop schedules"""
+    shop_id = serializers.UUIDField(write_only=True, required=True)
     
     class Meta:
         model = ShopSchedule
-        fields = ['day_of_week', 'start_time', 'end_time', 'is_active']
+        fields = ['shop_id', 'day_of_week', 'start_time', 'end_time', 'is_active']
     
     def validate(self, data):
         if data['start_time'] >= data['end_time']:
@@ -70,25 +94,27 @@ class TimeSlotSerializer(serializers.ModelSerializer):
 
 class TimeSlotGenerateSerializer(serializers.Serializer):
     """Input serializer for generating time slots"""
-    shop_id = serializers.IntegerField()
+    shop_id = serializers.UUIDField()
     start_date = serializers.DateField()
 
-    end_date = serializers.DateField()
-    start_time = serializers.TimeField(required=False)
-    end_time = serializers.TimeField(required=False)
-    slot_duration_minutes = serializers.IntegerField(default=30, required=False)
+    day_name = serializers.ChoiceField(choices=[
+        ('monday', 'Monday'),
+        ('tuesday', 'Tuesday'),
+        ('wednesday', 'Wednesday'),
+        ('thursday', 'Thursday'),
+        ('friday', 'Friday'),
+        ('saturday', 'Saturday'),
+        ('sunday', 'Sunday'),
+    ])
+    start_time = serializers.TimeField()
+    end_time = serializers.TimeField()
     
     def validate(self, data):
-        if data['start_date'] > data['end_date']:
-            raise serializers.ValidationError("End date must be after start date")
         if data['start_date'] < datetime.now().date():
             raise serializers.ValidationError("Start date cannot be in the past")
-        if (data['end_date'] - data['start_date']).days > 90:
-            raise serializers.ValidationError("Cannot generate slots for more than 90 days")
         
-        if data.get('start_time') and data.get('end_time'):
-            if data['start_time'] >= data['end_time']:
-                raise serializers.ValidationError("End time must be after start time")
+        if data['start_time'] >= data['end_time']:
+            raise serializers.ValidationError("End time must be after start time")
                 
         return data
 
@@ -102,7 +128,7 @@ class TimeSlotGenerateResponseSerializer(serializers.Serializer):
 
 class AvailabilityCheckSerializer(serializers.Serializer):
     """Input serializer for checking availability"""
-    shop_id = serializers.IntegerField()
+    shop_id = serializers.UUIDField()
     service_id = serializers.IntegerField(required=False)
     date = serializers.DateField()
 

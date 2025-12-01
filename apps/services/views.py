@@ -5,7 +5,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiTypes
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
@@ -51,7 +51,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
         summary="List services",
         description="Get all services. Customers see only active services. Salon owners see only their services.",
         parameters=[
-            OpenApiParameter('shop_id', int, description='Filter by shop ID'),
+            OpenApiParameter('shop_id', OpenApiTypes.UUID, description='Filter by shop ID'),
             OpenApiParameter('is_active', bool, description='Filter by active status'),
             OpenApiParameter('search', str, description='Search in name and description'),
         ],

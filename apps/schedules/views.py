@@ -5,7 +5,7 @@ from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiTypes
 from django.utils import timezone
 from datetime import datetime, timedelta
 
@@ -51,7 +51,7 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
         summary="List shop schedules",
         description="Get shop schedules. Filter by shop_id to get schedules for a specific shop.",
         parameters=[
-            OpenApiParameter('shop_id', int, description='Filter by shop ID'),
+            OpenApiParameter('shop_id', OpenApiTypes.UUID, description='Filter by shop ID'),
         ],
         responses={200: ShopScheduleSerializer(many=True)},
         tags=['Schedules - Client']
@@ -61,7 +61,7 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Create shop schedule",
-        description="Create a new schedule for a shop (salon owners only)",
+        description="Create a new schedule for a shop (salon owners only). Requires shop_id in request body.",
         request=ShopScheduleCreateUpdateSerializer,
         responses={
             201: ShopScheduleSerializer,
@@ -213,7 +213,7 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         summary="List time slots",
         description="Get time slots with optional filters",
         parameters=[
-            OpenApiParameter('shop_id', int, description='Filter by shop ID'),
+            OpenApiParameter('shop_id', OpenApiTypes.UUID, description='Filter by shop ID'),
             OpenApiParameter('date', str, description='Filter by date (YYYY-MM-DD)'),
             OpenApiParameter('status', str, description='Filter by status (available, booked, blocked)'),
         ],
@@ -285,11 +285,9 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         
         shop_id = serializer.validated_data['shop_id']
         start_date = serializer.validated_data['start_date']
-        end_date = serializer.validated_data['end_date']
-        
-        start_time_req = serializer.validated_data.get('start_time')
-        end_time_req = serializer.validated_data.get('end_time')
-        slot_duration = serializer.validated_data.get('slot_duration_minutes', 30)
+        day_name = serializer.validated_data['day_name']
+        start_time_req = serializer.validated_data['start_time']
+        end_time_req = serializer.validated_data['end_time']
         
         # Verify shop ownership
         from apps.shops.models import Shop
@@ -301,62 +299,83 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Get shop schedules
-        schedules = ShopSchedule.objects.filter(shop=shop, is_active=True)
+        # Calculate target date
+        # Find the next occurrence of day_name on or after start_date
+        days_map = {
+            'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+            'friday': 4, 'saturday': 5, 'sunday': 6
+        }
+        target_day_num = days_map[day_name.lower()]
+        current_day_num = start_date.weekday()
         
-        if not schedules.exists():
+        days_ahead = target_day_num - current_day_num
+        if days_ahead < 0:
+            days_ahead += 7
+        target_date = start_date + timedelta(days=days_ahead)
+        
+        # Find or create schedule for this day
+        # Auto-create a default schedule if one doesn't exist to allow flexible slot creation
+        schedule, created = ShopSchedule.objects.get_or_create(
+            shop=shop,
+            day_of_week=day_name.lower(),
+            defaults={
+                'start_time': start_time_req,
+                'end_time': end_time_req,
+                'is_active': True,
+                'slot_duration_minutes': 30  # Default duration
+            }
+        )
+        
+        if created:
+            print(f"DEBUG: Auto-created schedule for {day_name}")
+            
+        # Create the slot
+        current_time = datetime.combine(target_date, start_time_req)
+        end_time_dt = datetime.combine(target_date, end_time_req)
+        
+        # Check for existing slots that overlap
+        # We want to prevent exact duplicates or overlaps for the same shop/schedule
+        overlapping_slots = TimeSlot.objects.filter(
+            schedule=schedule,
+            start_datetime__lt=end_time_dt,
+            end_datetime__gt=current_time
+        )
+        
+        if overlapping_slots.exists():
             return Response(
-                {'error': 'No active schedules found for this shop'},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    'message': 'Slot already exists or overlaps with an existing slot',
+                    'slots_created': 0,
+                    'shop_details': {
+                        'id': str(shop.id),
+                        'name': shop.name,
+                        'address': shop.address,
+                        'city': shop.city
+                    }
+                },
+                status=status.HTTP_200_OK
             )
+
+        TimeSlot.objects.create(
+            schedule=schedule,
+            start_datetime=current_time,
+            end_datetime=end_time_dt,
+            status='available'
+        )
         
-        # Generate time slots
-        slots_created = 0
-        current_date = start_date
-        
-        while current_date <= end_date:
-            day_name = current_date.strftime('%A').lower()
-            
-            # Find schedule for this day
-            day_schedule = schedules.filter(day_of_week=day_name).first()
-            
-            if day_schedule:
-                # Determine start and end times
-                # Use request times if provided, otherwise use schedule times
-                s_time = start_time_req if start_time_req else day_schedule.start_time
-                e_time = end_time_req if end_time_req else day_schedule.end_time
-                
-                # Generate slots for this day
-                current_time = datetime.combine(current_date, s_time)
-                end_time_dt = datetime.combine(current_date, e_time)
-                
-                while current_time < end_time_dt:
-                    slot_end = current_time + timedelta(minutes=slot_duration)
-                    
-                    if slot_end <= end_time_dt:
-                        # Check if slot already exists
-                        if not TimeSlot.objects.filter(
-                            schedule=day_schedule,
-                            start_datetime=current_time
-                        ).exists():
-                            TimeSlot.objects.create(
-                                schedule=day_schedule,
-                                start_datetime=current_time,
-                                end_datetime=slot_end,
-                                status='available'
-                            )
-                            slots_created += 1
-                    
-                    current_time = slot_end
-            
-            current_date += timedelta(days=1)
+        # Calculate duration in minutes
+        duration_minutes = int((end_time_dt - current_time).total_seconds() / 60)
         
         response_data = {
-            'message': f'Successfully generated {slots_created} time slots',
-            'slots_created': slots_created,
-            'date_range': {
-                'start_date': start_date.isoformat(),
-                'end_date': end_date.isoformat()
+            'message': 'Successfully created 1 time slot',
+            'slots_created': 1,
+            'date': target_date.isoformat(),
+            'duration_minutes': duration_minutes,
+            'shop_details': {
+                'id': str(shop.id),
+                'name': shop.name,
+                'address': shop.address,
+                'city': shop.city
             }
         }
         
