@@ -33,7 +33,7 @@ class ShopScheduleCreateUpdateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ShopSchedule
-        fields = ['day_of_week', 'start_time', 'end_time', 'slot_duration_minutes', 'is_active']
+        fields = ['day_of_week', 'start_time', 'end_time', 'is_active']
     
     def validate(self, data):
         if data['start_time'] >= data['end_time']:
@@ -49,13 +49,20 @@ class TimeSlotSerializer(serializers.ModelSerializer):
     def get_is_available(self, obj):
         return obj.status == 'available' and obj.start_datetime > timezone.now()
     
+    @extend_schema_field(serializers.IntegerField)
+    def get_duration_minutes(self, obj):
+        """Calculate duration in minutes from start and end datetime"""
+        delta = obj.end_datetime - obj.start_datetime
+        return int(delta.total_seconds() / 60)
+    
     is_available = serializers.SerializerMethodField()
+    duration_minutes = serializers.SerializerMethodField()
     
     class Meta:
         model = TimeSlot
         fields = [
             'id', 'schedule', 'shop_name', 'start_datetime',
-            'end_datetime', 'status', 'is_available',
+            'end_datetime', 'duration_minutes', 'status', 'is_available',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'schedule', 'created_at', 'updated_at']
@@ -65,7 +72,11 @@ class TimeSlotGenerateSerializer(serializers.Serializer):
     """Input serializer for generating time slots"""
     shop_id = serializers.IntegerField()
     start_date = serializers.DateField()
+
     end_date = serializers.DateField()
+    start_time = serializers.TimeField(required=False)
+    end_time = serializers.TimeField(required=False)
+    slot_duration_minutes = serializers.IntegerField(default=30, required=False)
     
     def validate(self, data):
         if data['start_date'] > data['end_date']:
@@ -74,6 +85,11 @@ class TimeSlotGenerateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Start date cannot be in the past")
         if (data['end_date'] - data['start_date']).days > 90:
             raise serializers.ValidationError("Cannot generate slots for more than 90 days")
+        
+        if data.get('start_time') and data.get('end_time'):
+            if data['start_time'] >= data['end_time']:
+                raise serializers.ValidationError("End time must be after start time")
+                
         return data
 
 

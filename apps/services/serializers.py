@@ -21,10 +21,11 @@ class ServiceSerializer(serializers.ModelSerializer):
 
 class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating services"""
+    shop_id = serializers.IntegerField(write_only=True, required=False)
     
     class Meta:
         model = Service
-        fields = ['name', 'description', 'price', 'duration_minutes', 'is_active']
+        fields = ['shop_id', 'name', 'description', 'price', 'duration_minutes', 'is_active', 'category']
     
     def validate_price(self, value):
         if value < 0:
@@ -37,3 +38,11 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
         if value > 480:  # 8 hours
             raise serializers.ValidationError("Duration cannot exceed 8 hours")
         return value
+
+    def create(self, validated_data):
+        validated_data.pop('shop_id', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop('shop_id', None)
+        return super().update(instance, validated_data)

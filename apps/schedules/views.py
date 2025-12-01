@@ -1,7 +1,7 @@
 """
 Schedule and TimeSlot views
 """
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -98,6 +98,23 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        
+        # Check if schedule already exists for this day
+        existing_schedule = ShopSchedule.objects.filter(
+            shop=shop,
+            day_of_week=serializer.validated_data['day_of_week']
+        ).first()
+        
+        if existing_schedule:
+            return Response(
+                {
+                    'error': f'A schedule for {serializer.validated_data["day_of_week"]} already exists for this shop',
+                    'existing_schedule_id': str(existing_schedule.id),
+                    'message': 'Use PUT or PATCH to update the existing schedule'
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+        
         schedule = serializer.save(shop=shop)
         return Response(
             ShopScheduleSerializer(schedule).data,
@@ -166,7 +183,7 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
         return super().get_permissions()
 
 
-class TimeSlotViewSet(viewsets.ReadOnlyModelViewSet):
+class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing time slots"""
     queryset = TimeSlot.objects.select_related('schedule__shop')
     serializer_class = TimeSlotSerializer
@@ -219,6 +236,36 @@ class TimeSlotViewSet(viewsets.ReadOnlyModelViewSet):
         return super().retrieve(request, *args, **kwargs)
     
     @extend_schema(
+        summary="Update time slot",
+        description="Update time slot details (salon owners only)",
+        request=TimeSlotSerializer,
+        responses={
+            200: TimeSlotSerializer,
+            400: OpenApiResponse(description="Bad Request"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Time slot not found")
+        },
+        tags=['Schedules - Client']
+    )
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="Partial update time slot",
+        description="Partially update time slot details (salon owners only)",
+        request=TimeSlotSerializer,
+        responses={
+            200: TimeSlotSerializer,
+            400: OpenApiResponse(description="Bad Request"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Time slot not found")
+        },
+        tags=['Schedules - Client']
+    )
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+    
+    @extend_schema(
         summary="Generate time slots",
         description="Generate time slots for a shop based on its schedules (salon owners only)",
         request=TimeSlotGenerateSerializer,
@@ -230,7 +277,7 @@ class TimeSlotViewSet(viewsets.ReadOnlyModelViewSet):
         },
         tags=['Schedules - Client']
     )
-    @action(detail=False, methods=['post'], permission_classes=[IsClient])
+    @action(detail=False, methods=['post', 'patch'], permission_classes=[IsClient])
     def generate(self, request):
         """Generate time slots for a date range"""
         serializer = TimeSlotGenerateSerializer(data=request.data)
@@ -239,6 +286,10 @@ class TimeSlotViewSet(viewsets.ReadOnlyModelViewSet):
         shop_id = serializer.validated_data['shop_id']
         start_date = serializer.validated_data['start_date']
         end_date = serializer.validated_data['end_date']
+        
+        start_time_req = serializer.validated_data.get('start_time')
+        end_time_req = serializer.validated_data.get('end_time')
+        slot_duration = serializer.validated_data.get('slot_duration_minutes', 30)
         
         # Verify shop ownership
         from apps.shops.models import Shop
@@ -270,14 +321,19 @@ class TimeSlotViewSet(viewsets.ReadOnlyModelViewSet):
             day_schedule = schedules.filter(day_of_week=day_name).first()
             
             if day_schedule:
-                # Generate slots for this day
-                current_time = datetime.combine(current_date, day_schedule.start_time)
-                end_time = datetime.combine(current_date, day_schedule.end_time)
+                # Determine start and end times
+                # Use request times if provided, otherwise use schedule times
+                s_time = start_time_req if start_time_req else day_schedule.start_time
+                e_time = end_time_req if end_time_req else day_schedule.end_time
                 
-                while current_time < end_time:
-                    slot_end = current_time + timedelta(minutes=day_schedule.slot_duration_minutes)
+                # Generate slots for this day
+                current_time = datetime.combine(current_date, s_time)
+                end_time_dt = datetime.combine(current_date, e_time)
+                
+                while current_time < end_time_dt:
+                    slot_end = current_time + timedelta(minutes=slot_duration)
                     
-                    if slot_end <= end_time:
+                    if slot_end <= end_time_dt:
                         # Check if slot already exists
                         if not TimeSlot.objects.filter(
                             schedule=day_schedule,
@@ -386,3 +442,11 @@ class TimeSlotViewSet(viewsets.ReadOnlyModelViewSet):
         time_slot.save(update_fields=['status'])
         
         return Response(TimeSlotSerializer(time_slot).data)
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['update', 'partial_update', 'block', 'unblock']:
+            return [IsClient(), IsShopOwner()]
+        elif self.action == 'generate':
+            return [IsClient()]
+        return super().get_permissions()
