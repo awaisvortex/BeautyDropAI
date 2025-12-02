@@ -43,8 +43,8 @@ class BookingSerializer(serializers.ModelSerializer):
 
 class BookingCreateSerializer(serializers.Serializer):
     """Input serializer for creating bookings"""
-    service_id = serializers.IntegerField()
-    time_slot_id = serializers.IntegerField()
+    service_id = serializers.UUIDField()
+    time_slot_id = serializers.UUIDField()
     staff_member_id = serializers.UUIDField(required=False, allow_null=True, help_text="Optional: Select a specific staff member")
     notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
     
@@ -133,7 +133,7 @@ class BookingUpdateStatusSerializer(serializers.Serializer):
 
 class BookingRescheduleSerializer(serializers.Serializer):
     """Input serializer for rescheduling bookings"""
-    new_time_slot_id = serializers.IntegerField()
+    new_time_slot_id = serializers.UUIDField()
     
     def validate_new_time_slot_id(self, value):
         from apps.schedules.models import TimeSlot

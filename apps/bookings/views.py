@@ -5,7 +5,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiExample
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
 from django.utils import timezone
@@ -74,8 +74,8 @@ class BookingViewSet(viewsets.ModelViewSet):
         description="Get bookings. Customers see their bookings, salon owners see their shop bookings.",
         parameters=[
             OpenApiParameter('status', str, description='Filter by status'),
-            OpenApiParameter('shop', int, description='Filter by shop ID'),
-            OpenApiParameter('service', int, description='Filter by service ID'),
+            OpenApiParameter('shop', str, description='Filter by shop UUID'),
+            OpenApiParameter('service', str, description='Filter by service UUID'),
         ],
         responses={200: BookingListSerializer(many=True)},
         tags=['Bookings - Customer']
@@ -100,6 +100,18 @@ class BookingViewSet(viewsets.ModelViewSet):
         summary="Create booking",
         description="Create a new booking (customers only)",
         request=BookingCreateSerializer,
+        examples=[
+            OpenApiExample(
+                'Booking Creation Example',
+                value={
+                    'service_id': 'd241ec69-f739-4040-94a0-b46286742dbe',
+                    'time_slot_id': '3108e310-9780-448f-809d-d014e7d716b8',
+                    'staff_member_id': 'b9743cc7-1364-4a32-a3b7-730a02365f00',
+                    'notes': 'Please call me when you arrive'
+                },
+                request_only=True
+            )
+        ],
         responses={
             201: BookingSerializer,
             400: OpenApiResponse(description="Bad Request - Invalid data or time slot not available"),
@@ -490,6 +502,15 @@ class BookingViewSet(viewsets.ModelViewSet):
         summary="Reschedule booking",
         description="Reschedule a booking to a new time slot",
         request=BookingRescheduleSerializer,
+        examples=[
+            OpenApiExample(
+                'Reschedule Example',
+                value={
+                    'new_time_slot_id': '3108e310-9780-448f-809d-d014e7d716b8'
+                },
+                request_only=True
+            )
+        ],
         responses={
             200: BookingSerializer,
             400: OpenApiResponse(description="Bad Request"),
