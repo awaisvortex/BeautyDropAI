@@ -37,10 +37,12 @@ class ServiceViewSet(viewsets.ModelViewSet):
         if shop_id:
             queryset = queryset.filter(shop_id=shop_id)
         
-        # Only show active services to customers
-        if self.request.user.role == 'customer':
+        # Handle unauthenticated users (public access)
+        if not self.request.user.is_authenticated:
             queryset = queryset.filter(is_active=True)
-        
+        # Only show active services to customers
+        elif self.request.user.role == 'customer':
+            queryset = queryset.filter(is_active=True)
         # Clients see only their services
         elif self.request.user.role == 'client':
             queryset = queryset.filter(shop__client__user=self.request.user)
@@ -184,8 +186,8 @@ class ServiceViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active']:
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active']:
             return [IsClient(), IsShopOwner()]
-        elif self.action in ['list', 'retrieve']:
-            return [AllowAny()] if self.request.query_params.get('public') else [IsAuthenticated()]
         return super().get_permissions()

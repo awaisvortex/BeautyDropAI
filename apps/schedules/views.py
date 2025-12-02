@@ -41,8 +41,8 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
         if shop_id:
             queryset = queryset.filter(shop_id=shop_id)
         
-        # Clients see only their schedules
-        if self.request.user.role == 'client':
+        # Clients see only their schedules when authenticated
+        if self.request.user.is_authenticated and self.request.user.role == 'client':
             queryset = queryset.filter(shop__client__user=self.request.user)
         
         return queryset
@@ -54,7 +54,7 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
             OpenApiParameter('shop_id', OpenApiTypes.UUID, description='Filter by shop ID'),
         ],
         responses={200: ShopScheduleSerializer(many=True)},
-        tags=['Schedules - Client']
+        tags=['Schedules - Public']
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -178,7 +178,9 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsClient(), IsShopOwner()]
         return super().get_permissions()
 
@@ -464,7 +466,9 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
 
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['update', 'partial_update', 'block', 'unblock']:
+        if self.action in ['list', 'retrieve', 'check_availability']:
+            return [AllowAny()]
+        elif self.action in ['update', 'partial_update', 'block', 'unblock']:
             return [IsClient(), IsShopOwner()]
         elif self.action == 'generate':
             return [IsClient()]

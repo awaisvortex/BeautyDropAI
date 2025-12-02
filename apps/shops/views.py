@@ -40,11 +40,14 @@ class ShopViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         
+        # Handle unauthenticated users (public access)
+        if not self.request.user.is_authenticated:
+            # Show only active shops to public
+            queryset = queryset.filter(is_active=True)
         # Clients see only their shops
-        if self.request.user.is_authenticated and self.request.user.role == 'client':
+        elif self.request.user.is_authenticated and self.request.user.role == 'client':
             if self.action not in ['search', 'public']:
                 queryset = queryset.filter(client__user=self.request.user)
-        
         # Customers see only active shops
         elif self.request.user.is_authenticated and self.request.user.role == 'customer':
             queryset = queryset.filter(is_active=True)
@@ -295,10 +298,10 @@ class ShopViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active', 'dashboard']:
-            return [IsClient(), IsShopOwner()]
-        elif self.action in ['search', 'public']:
+        if self.action in ['list', 'retrieve', 'search', 'public']:
             return [AllowAny()]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active', 'dashboard']:
+            return [IsClient(), IsShopOwner()]
         elif self.action == 'my_shops':
             return [IsClient()]
         return super().get_permissions()
