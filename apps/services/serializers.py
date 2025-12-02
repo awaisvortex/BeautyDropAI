@@ -5,16 +5,24 @@ from rest_framework import serializers
 from .models import Service
 
 
+class ServiceStaffSerializer(serializers.Serializer):
+    """Serializer for staff members assigned to a service"""
+    staff_id = serializers.UUIDField(source='staff_member.id', read_only=True)
+    staff_name = serializers.CharField(source='staff_member.name', read_only=True)
+    is_primary = serializers.BooleanField(read_only=True)
+
+
 class ServiceSerializer(serializers.ModelSerializer):
     """Serializer for Service model"""
     shop_name = serializers.CharField(source='shop.name', read_only=True)
+    assigned_staff = ServiceStaffSerializer(source='service_staff', many=True, read_only=True)
     
     class Meta:
         model = Service
         fields = [
             'id', 'shop', 'shop_name', 'name', 'description',
             'price', 'duration_minutes', 'is_active',
-            'created_at', 'updated_at'
+            'assigned_staff', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'shop', 'created_at', 'updated_at']
 
