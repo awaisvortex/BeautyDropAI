@@ -68,6 +68,7 @@ class ShopScheduleCreateUpdateSerializer(serializers.ModelSerializer):
 class TimeSlotSerializer(serializers.ModelSerializer):
     """Serializer for TimeSlot model"""
     shop_name = serializers.CharField(source='schedule.shop.name', read_only=True)
+    staff_member_name = serializers.CharField(source='staff_member.name', read_only=True, allow_null=True)
     
     @extend_schema_field(serializers.BooleanField)
     def get_is_available(self, obj):
@@ -86,7 +87,8 @@ class TimeSlotSerializer(serializers.ModelSerializer):
         model = TimeSlot
         fields = [
             'id', 'schedule', 'shop_name', 'start_datetime',
-            'end_datetime', 'duration_minutes', 'status', 'is_available',
+            'end_datetime', 'duration_minutes', 'status', 'staff_member',
+            'staff_member_name', 'is_available',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'schedule', 'created_at', 'updated_at']
@@ -108,6 +110,11 @@ class TimeSlotGenerateSerializer(serializers.Serializer):
     ])
     start_time = serializers.TimeField()
     end_time = serializers.TimeField()
+    staff_member_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional: Assign a specific staff member to this time slot"
+    )
     
     def validate(self, data):
         if data['start_date'] < datetime.now().date():

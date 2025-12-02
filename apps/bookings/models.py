@@ -34,6 +34,15 @@ class Booking(BaseModel):
         related_name='booking'
     )
     
+    staff_member = models.ForeignKey(
+        'staff.StaffMember',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bookings',
+        help_text='Staff member assigned to this booking'
+    )
+    
     # Booking details
     booking_datetime = models.DateTimeField(db_index=True)
     status = models.CharField(

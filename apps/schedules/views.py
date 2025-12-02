@@ -268,6 +268,57 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         return super().partial_update(request, *args, **kwargs)
     
     @extend_schema(
+        summary="Assign staff to time slot",
+        description="Bind a specific staff member to a time slot. This makes the slot exclusive to that staff member (salon owners only).",
+        parameters=[
+            OpenApiParameter('staff_member_id', OpenApiTypes.UUID, description='Staff member ID to assign (leave empty to unbind)', required=False),
+        ],
+        responses={
+            200: TimeSlotSerializer,
+            400: OpenApiResponse(description="Bad Request - Staff not found or doesn't belong to shop"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Time slot not found")
+        },
+        tags=['Schedules - Client']
+    )
+    @action(detail=True, methods=['patch'], permission_classes=[IsClient, IsShopOwner])
+    def assign_staff(self, request, pk=None):
+        """Assign or unbind staff from a time slot"""
+        time_slot = self.get_object()
+        staff_member_id = request.query_params.get('staff_member_id')
+        
+        if staff_member_id:
+            # Assign staff to slot
+            from apps.staff.models import StaffMember
+            try:
+                staff_member = StaffMember.objects.get(
+                    id=staff_member_id,
+                    shop=time_slot.schedule.shop,
+                    is_active=True
+                )
+                time_slot.staff_member = staff_member
+                time_slot.save(update_fields=['staff_member'])
+                
+                return Response(
+                    TimeSlotSerializer(time_slot).data,
+                    status=status.HTTP_200_OK
+                )
+            except StaffMember.DoesNotExist:
+                return Response(
+                    {'error': 'Staff member not found or not available at this shop'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            # Unbind staff from slot
+            time_slot.staff_member = None
+            time_slot.save(update_fields=['staff_member'])
+            
+            return Response(
+                TimeSlotSerializer(time_slot).data,
+                status=status.HTTP_200_OK
+            )
+    
+    @extend_schema(
         summary="Generate time slots",
         description="Generate time slots for a shop based on its schedules (salon owners only)",
         request=TimeSlotGenerateSerializer,
@@ -358,10 +409,29 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_200_OK
             )
 
+        # Handle staff member assignment if provided
+        staff_member = None
+        staff_member_id = serializer.validated_data.get('staff_member_id')
+        
+        if staff_member_id:
+            from apps.staff.models import StaffMember
+            try:
+                staff_member = StaffMember.objects.get(
+                    id=staff_member_id,
+                    shop=shop,
+                    is_active=True
+                )
+            except StaffMember.DoesNotExist:
+                return Response(
+                    {'error': 'Staff member not found or not available at this shop'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         TimeSlot.objects.create(
             schedule=schedule,
             start_datetime=current_time,
             end_datetime=end_time_dt,
+            staff_member=staff_member,
             status='available'
         )
         
@@ -468,7 +538,7 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         """Set permissions based on action"""
         if self.action in ['list', 'retrieve', 'check_availability']:
             return [AllowAny()]
-        elif self.action in ['update', 'partial_update', 'block', 'unblock']:
+        elif self.action in ['update', 'partial_update', 'assign_staff', 'block', 'unblock']:
             return [IsClient(), IsShopOwner()]
         elif self.action == 'generate':
             return [IsClient()]

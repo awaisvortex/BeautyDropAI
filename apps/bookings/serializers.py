@@ -22,6 +22,7 @@ class BookingSerializer(serializers.ModelSerializer):
         source='service.duration_minutes',
         read_only=True
     )
+    staff_member_name = serializers.CharField(source='staff_member.name', read_only=True, allow_null=True)
     
     class Meta:
         model = Booking
@@ -29,6 +30,7 @@ class BookingSerializer(serializers.ModelSerializer):
             'id', 'customer', 'customer_name', 'customer_email',
             'shop', 'shop_name', 'service', 'service_name',
             'service_price', 'service_duration', 'time_slot',
+            'staff_member', 'staff_member_name',
             'booking_datetime', 'status', 'total_price', 'notes',
             'cancellation_reason', 'cancelled_at',
             'created_at', 'updated_at'
@@ -43,11 +45,13 @@ class BookingCreateSerializer(serializers.Serializer):
     """Input serializer for creating bookings"""
     service_id = serializers.IntegerField()
     time_slot_id = serializers.IntegerField()
+    staff_member_id = serializers.UUIDField(required=False, allow_null=True, help_text="Optional: Select a specific staff member")
     notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
     
     def validate(self, data):
         from apps.services.models import Service
         from apps.schedules.models import TimeSlot
+        from apps.staff.models import StaffMember
         
         # Validate service exists
         try:
@@ -71,6 +75,24 @@ class BookingCreateSerializer(serializers.Serializer):
         if time_slot.schedule.shop != service.shop:
             raise serializers.ValidationError("Time slot and service must be from the same shop")
         
+        # Validate staff member if provided
+        if data.get('staff_member_id'):
+            try:
+                staff_member = StaffMember.objects.get(
+                    id=data['staff_member_id'],
+                    shop=service.shop,
+                    is_active=True
+                )
+                # Verify staff can provide this service
+                if not staff_member.services.filter(id=service.id).exists():
+                    raise serializers.ValidationError(
+                        "Selected staff member cannot provide this service"
+                    )
+            except StaffMember.DoesNotExist:
+                raise serializers.ValidationError(
+                    "Staff member not found or not available at this shop"
+                )
+        
         return data
 
 
@@ -79,12 +101,14 @@ class BookingListSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source='customer.user.full_name', read_only=True)
     shop_name = serializers.CharField(source='shop.name', read_only=True)
     service_name = serializers.CharField(source='service.name', read_only=True)
+    staff_member_name = serializers.CharField(source='staff_member.name', read_only=True, allow_null=True)
     
     class Meta:
         model = Booking
         fields = [
             'id', 'customer_name', 'shop_name', 'service_name',
-            'booking_datetime', 'status', 'total_price', 'created_at'
+            'staff_member_name', 'booking_datetime', 'status',
+            'total_price', 'created_at'
         ]
 
 
