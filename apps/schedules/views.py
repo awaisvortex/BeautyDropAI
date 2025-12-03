@@ -386,18 +386,29 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         current_time = datetime.combine(target_date, start_time_req)
         end_time_dt = datetime.combine(target_date, end_time_req)
         
-        # Check for existing slots that overlap
-        # We want to prevent exact duplicates or overlaps for the same shop/schedule
-        overlapping_slots = TimeSlot.objects.filter(
+        # Check for existing slots at the exact same time
+        # Allow multiple slots for the same time period, limited by the number of active staff
+        existing_slots_count = TimeSlot.objects.filter(
             schedule=schedule,
-            start_datetime__lt=end_time_dt,
-            end_datetime__gt=current_time
-        )
+            start_datetime=current_time,
+            end_datetime=end_time_dt
+        ).count()
         
-        if overlapping_slots.exists():
+        # Get the number of active staff members for this shop
+        from apps.staff.models import StaffMember
+        active_staff_count = StaffMember.objects.filter(
+            shop=shop,
+            is_active=True
+        ).count()
+        
+        # Prevent creating more slots than available staff members
+        if existing_slots_count >= active_staff_count:
             return Response(
                 {
-                    'message': 'Slot already exists or overlaps with an existing slot',
+                    'error': f'Cannot create more time slots. Maximum {active_staff_count} concurrent slots allowed (based on active staff count)',
+                    'existing_slots': existing_slots_count,
+                    'active_staff_count': active_staff_count,
+                    'message': 'Add more staff members to create additional concurrent time slots',
                     'slots_created': 0,
                     'shop_details': {
                         'id': str(shop.id),
@@ -406,7 +417,7 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
                         'city': shop.city
                     }
                 },
-                status=status.HTTP_200_OK
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         # Handle staff member assignment if provided
