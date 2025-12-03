@@ -1,0 +1,84 @@
+# --- Python & Django Core ---
+# Python cache files - ignore at all directory levels
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.installed.cfg
+*.egg
+*.egg-info/
+eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.manifest
+lib/
+lib64/
+
+# --- Virtual Environments ---
+# It is critical to ignore these to avoid pushing thousands of library files
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# --- Database ---
+# SQLite databases should strictly stay local
+*.sqlite3
+*.sqlite3-journal
+*.db
+
+# --- Django Media & Static ---
+# Ignore user-uploaded media and collected static files
+/media/
+/staticfiles/
+# Keep the static folder but ignore content if you use a build process, 
+# otherwise keep /static/ if it contains your source CSS/JS.
+# /static/ 
+
+# --- Logs ---
+# Ignore all log files and the specific logs directory
+*.log
+logs/
+
+# --- Testing & Coverage ---
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+
+# --- Environment Variables (Security Risk) ---
+# NEVER push these. They contain API keys (Stripe, Clerk, DB passwords)
+.env
+.env.local
+.env.*.local
+local_settings.py
+
+# --- IDE & Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Celery ---
+celerybeat-schedule
+celerybeat.pid
+
+# --- Build Artifacts ---
+build/
+develop-eggs/
+dist/
+downloads/
+
