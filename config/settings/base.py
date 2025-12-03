@@ -178,16 +178,14 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Bookings - Client', 'description': 'Salon owner booking management'},
         {'name': 'Platform Subscriptions', 'description': 'Salon owner platform subscriptions'},
     ],
-    'SECURITY': [
-        {
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
             'BearerAuth': {
                 'type': 'http',
                 'scheme': 'bearer',
                 'bearerFormat': 'JWT',
                 'description': 'Production: Clerk JWT token from Authorization header'
-            }
-        },
-        {
+            },
             'ClerkUserAuth': {
                 'type': 'apiKey',
                 'in': 'header',
@@ -195,6 +193,10 @@ SPECTACULAR_SETTINGS = {
                 'description': 'Development/Testing: Enter your clerk_user_id (e.g., user_2abc123...)'
             }
         }
+    },
+    'SECURITY': [
+        {'BearerAuth': []},
+        {'ClerkUserAuth': []}
     ],
     'ENUM_NAME_OVERRIDES': {
         'StatusB86Enum': 'BookingStatusEnum',
