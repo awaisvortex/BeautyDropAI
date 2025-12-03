@@ -5,7 +5,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiExample
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
 from django.utils import timezone
@@ -56,7 +56,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             return Booking.objects.none()
         
         queryset = Booking.objects.select_related(
-            'customer__user', 'shop__client__user', 'service', 'time_slot'
+            'customer__user', 'shop__client__user', 'service', 'time_slot', 'staff_member'
         )
         
         # Customers see their own bookings
@@ -74,8 +74,8 @@ class BookingViewSet(viewsets.ModelViewSet):
         description="Get bookings. Customers see their bookings, salon owners see their shop bookings.",
         parameters=[
             OpenApiParameter('status', str, description='Filter by status'),
-            OpenApiParameter('shop', int, description='Filter by shop ID'),
-            OpenApiParameter('service', int, description='Filter by service ID'),
+            OpenApiParameter('shop', str, description='Filter by shop UUID'),
+            OpenApiParameter('service', str, description='Filter by service UUID'),
         ],
         responses={200: BookingListSerializer(many=True)},
         tags=['Bookings - Customer']
@@ -100,6 +100,18 @@ class BookingViewSet(viewsets.ModelViewSet):
         summary="Create booking",
         description="Create a new booking (customers only)",
         request=BookingCreateSerializer,
+        examples=[
+            OpenApiExample(
+                'Booking Creation Example',
+                value={
+                    'service_id': 'd241ec69-f739-4040-94a0-b46286742dbe',
+                    'time_slot_id': '3108e310-9780-448f-809d-d014e7d716b8',
+                    'staff_member_id': 'b9743cc7-1364-4a32-a3b7-730a02365f00',
+                    'notes': 'Please call me when you arrive'
+                },
+                request_only=True
+            )
+        ],
         responses={
             201: BookingSerializer,
             400: OpenApiResponse(description="Bad Request - Invalid data or time slot not available"),
@@ -124,9 +136,99 @@ class BookingViewSet(viewsets.ModelViewSet):
         # Get validated data
         from apps.services.models import Service
         from apps.schedules.models import TimeSlot
+        from apps.staff.models import StaffMember, StaffService
         
         service = Service.objects.get(id=serializer.validated_data['service_id'])
         time_slot = TimeSlot.objects.get(id=serializer.validated_data['time_slot_id'])
+        
+        # Handle staff member assignment with availability checking
+        staff_member = None
+        staff_member_id = serializer.validated_data.get('staff_member_id')
+        
+        if staff_member_id:
+            # User selected a specific staff member - verify availability
+            try:
+                staff_member = StaffMember.objects.get(
+                    id=staff_member_id,
+                    shop=service.shop,
+                    is_active=True
+                )
+                
+                # Check if staff member is already booked for this time slot
+                conflicting_booking = Booking.objects.filter(
+                    staff_member=staff_member,
+                    time_slot__start_datetime__lt=time_slot.end_datetime,
+                    time_slot__end_datetime__gt=time_slot.start_datetime,
+                    status__in=['pending', 'confirmed']
+                ).exists()
+                
+                if conflicting_booking:
+                    return Response(
+                        {'error': f'{staff_member.name} is already booked for this time slot'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Verify staff can provide this service (if they have service assignments)
+                staff_services = staff_member.services.all()
+                if staff_services.exists() and not staff_services.filter(id=service.id).exists():
+                    return Response(
+                        {'error': f'{staff_member.name} cannot provide this service'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
+            except StaffMember.DoesNotExist:
+                return Response(
+                    {'error': 'Selected staff member not found or not available'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            # Auto-assign staff member with smart prioritization
+            # Get all active staff for this shop
+            all_staff = StaffMember.objects.filter(
+                shop=service.shop,
+                is_active=True
+            )
+            
+            # Exclude staff who are already booked for this time slot
+            available_staff_ids = []
+            for staff in all_staff:
+                conflicting_booking = Booking.objects.filter(
+                    staff_member=staff,
+                    time_slot__start_datetime__lt=time_slot.end_datetime,
+                    time_slot__end_datetime__gt=time_slot.start_datetime,
+                    status__in=['pending', 'confirmed']
+                ).exists()
+                
+                if not conflicting_booking:
+                    available_staff_ids.append(staff.id)
+            
+            available_staff = StaffMember.objects.filter(id__in=available_staff_ids)
+            
+            # Priority 1: Free staff (no specific service assignments) who are available
+            free_staff = available_staff.filter(services__isnull=True).first()
+            
+            if free_staff:
+                staff_member = free_staff
+            else:
+                # Priority 2: Staff marked as primary for this service
+                primary_staff = StaffService.objects.filter(
+                    service=service,
+                    is_primary=True,
+                    staff_member__in=available_staff
+                ).first()
+                
+                if primary_staff:
+                    staff_member = primary_staff.staff_member
+                else:
+                    # Priority 3: Any available staff who can provide this service
+                    service_staff = available_staff.filter(services=service).first()
+                    
+                    if service_staff:
+                        staff_member = service_staff
+                    else:
+                        # Priority 4: Check if time slot has pre-assigned staff
+                        if time_slot.staff_member and time_slot.staff_member.id in available_staff_ids:
+                            staff_member = time_slot.staff_member
         
         # Create booking
         booking = Booking.objects.create(
@@ -134,6 +236,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             shop=service.shop,
             service=service,
             time_slot=time_slot,
+            staff_member=staff_member,
             booking_datetime=time_slot.start_datetime,
             total_price=service.price,
             notes=serializer.validated_data.get('notes', ''),
@@ -399,6 +502,15 @@ class BookingViewSet(viewsets.ModelViewSet):
         summary="Reschedule booking",
         description="Reschedule a booking to a new time slot",
         request=BookingRescheduleSerializer,
+        examples=[
+            OpenApiExample(
+                'Reschedule Example',
+                value={
+                    'new_time_slot_id': '3108e310-9780-448f-809d-d014e7d716b8'
+                },
+                request_only=True
+            )
+        ],
         responses={
             200: BookingSerializer,
             400: OpenApiResponse(description="Bad Request"),

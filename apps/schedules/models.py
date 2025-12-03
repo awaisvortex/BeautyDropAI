@@ -57,6 +57,15 @@ class TimeSlot(BaseModel):
         db_index=True
     )
     
+    staff_member = models.ForeignKey(
+        'staff.StaffMember',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_slots',
+        help_text='Staff member pre-assigned to this time slot'
+    )
+    
     class Meta:
         db_table = 'time_slots'
         verbose_name = 'Time Slot'
