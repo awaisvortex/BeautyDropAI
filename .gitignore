@@ -1,5 +1,8 @@
 # --- Python & Django Core ---
+# Python cache files - ignore at all directory levels
 __pycache__/
+*/__pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.so
