@@ -176,7 +176,9 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Schedules - Public', 'description': 'Public availability checking'},
         {'name': 'Bookings - Customer', 'description': 'Customer booking management'},
         {'name': 'Bookings - Client', 'description': 'Salon owner booking management'},
-        {'name': 'Platform Subscriptions', 'description': 'Salon owner platform subscriptions'},
+        {'name': 'Subscriptions - Public', 'description': 'Public subscription plan browsing'},
+        {'name': 'Subscriptions - Client', 'description': 'Client subscription management'},
+        {'name': 'Subscriptions - Admin', 'description': 'Admin subscription plan management'},
     ],
     'APPEND_COMPONENTS': {
         'securitySchemes': {
@@ -217,6 +219,9 @@ CLERK_API_URL = env('CLERK_API_URL', default='https://api.clerk.com/v1')
 STRIPE_SECRET_KEY = env('STRIPE_SECRET_KEY')
 STRIPE_PUBLISHABLE_KEY = env('STRIPE_PUBLISHABLE_KEY')
 STRIPE_WEBHOOK_SECRET = env('STRIPE_WEBHOOK_SECRET')
+
+# Frontend URLs for subscription redirects
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
 
 # Redis Configuration
 REDIS_URL = env('REDIS_URL')

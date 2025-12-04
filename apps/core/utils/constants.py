@@ -48,20 +48,25 @@ DAYS_OF_WEEK = [
     ('sunday', 'Sunday'),
 ]
 
-# Subscription statuses
+# Subscription statuses (matching Stripe)
 SUBSCRIPTION_STATUS_ACTIVE = 'active'
-SUBSCRIPTION_STATUS_CANCELLED = 'cancelled'
-SUBSCRIPTION_STATUS_EXPIRED = 'expired'
-SUBSCRIPTION_STATUS_TRIAL = 'trial'
+SUBSCRIPTION_STATUS_PAST_DUE = 'past_due'
+SUBSCRIPTION_STATUS_CANCELED = 'canceled'
+SUBSCRIPTION_STATUS_UNPAID = 'unpaid'
+SUBSCRIPTION_STATUS_TRIALING = 'trialing'
+
+# Backwards compatibility
+SUBSCRIPTION_STATUS_TRIAL = SUBSCRIPTION_STATUS_TRIALING
 
 SUBSCRIPTION_STATUSES = [
     (SUBSCRIPTION_STATUS_ACTIVE, 'Active'),
-    (SUBSCRIPTION_STATUS_CANCELLED, 'Cancelled'),
-    (SUBSCRIPTION_STATUS_EXPIRED, 'Expired'),
-    (SUBSCRIPTION_STATUS_TRIAL, 'Trial'),
+    (SUBSCRIPTION_STATUS_PAST_DUE, 'Past Due'),
+    (SUBSCRIPTION_STATUS_CANCELED, 'Canceled'),
+    (SUBSCRIPTION_STATUS_UNPAID, 'Unpaid'),
+    (SUBSCRIPTION_STATUS_TRIALING, 'Trialing'),
 ]
 
-# Subscription plans
+# Subscription plans (deprecated - using SubscriptionPlan model)
 PLAN_FREE = 'free'
 PLAN_BASIC = 'basic'
 PLAN_PREMIUM = 'premium'
@@ -72,15 +77,25 @@ SUBSCRIPTION_PLANS = [
     (PLAN_PREMIUM, 'Premium'),
 ]
 
-# Payment statuses
+# Payment statuses (matching Stripe)
+PAYMENT_STATUS_SUCCEEDED = 'succeeded'
 PAYMENT_STATUS_PENDING = 'pending'
-PAYMENT_STATUS_COMPLETED = 'completed'
 PAYMENT_STATUS_FAILED = 'failed'
 PAYMENT_STATUS_REFUNDED = 'refunded'
 
 PAYMENT_STATUSES = [
+    (PAYMENT_STATUS_SUCCEEDED, 'Succeeded'),
     (PAYMENT_STATUS_PENDING, 'Pending'),
-    (PAYMENT_STATUS_COMPLETED, 'Completed'),
     (PAYMENT_STATUS_FAILED, 'Failed'),
     (PAYMENT_STATUS_REFUNDED, 'Refunded'),
 ]
+
+# Webhook sources
+WEBHOOK_SOURCE_STRIPE = 'stripe'
+WEBHOOK_SOURCE_CLERK = 'clerk'
+
+WEBHOOK_SOURCES = [
+    (WEBHOOK_SOURCE_STRIPE, 'Stripe'),
+    (WEBHOOK_SOURCE_CLERK, 'Clerk'),
+]
+
