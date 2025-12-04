@@ -36,8 +36,6 @@ INSTALLED_APPS = [
     
     # Third-party apps
     'rest_framework',
-    'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
     'drf_spectacular',
@@ -45,6 +43,7 @@ INSTALLED_APPS = [
     # Local apps
     'apps.core',
     'apps.authentication',
+    'apps.payments',
     'apps.clients',
     'apps.customers',
     'apps.shops',
@@ -142,8 +141,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # REST Framework Configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'apps.authentication.auth_backends.ClerkJWTAuthentication',  # Clerk tokens
-        'rest_framework_simplejwt.authentication.JWTAuthentication',  # JWT tokens
+        'apps.authentication.auth_backends.ClerkJWTAuthentication',  # Clerk Bearer token
+        'apps.authentication.auth_backends.ClerkUserIdAuthentication',  # Swagger dev auth
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -159,31 +158,15 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'apps.core.exceptions.custom_exception_handler',
 }
 
-# JWT Configuration
-from datetime import timedelta
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'UPDATE_LAST_LOGIN': True,
-    'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'USER_ID_FIELD': 'id',
-    'USER_ID_CLAIM': 'user_id',
-}
-
 # DRF Spectacular (API Documentation)
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Beauty Drop AI API',
-    'DESCRIPTION': 'AI-powered beauty salon booking marketplace with smart scheduling, payments, and service management',
+    'DESCRIPTION': 'AI-powered beauty salon booking marketplace with smart scheduling, payments, and service management. Authentication via Clerk.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'COMPONENT_SPLIT_REQUEST': True,
     'TAGS': [
-        {'name': 'Authentication - Public', 'description': 'Public authentication endpoints (register, login)'},
-        {'name': 'Authentication', 'description': 'Authenticated user endpoints'},
+        {'name': 'Authentication', 'description': 'User endpoints (Clerk-authenticated)'},
         {'name': 'System', 'description': 'System health and status'},
         {'name': 'Shops - Public', 'description': 'Public shop discovery and search'},
         {'name': 'Shops - Client', 'description': 'Salon owner shop management'},
@@ -195,28 +178,30 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Bookings - Client', 'description': 'Salon owner booking management'},
         {'name': 'Platform Subscriptions', 'description': 'Salon owner platform subscriptions'},
     ],
-    'SECURITY': [
-        {
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
             'BearerAuth': {
                 'type': 'http',
                 'scheme': 'bearer',
                 'bearerFormat': 'JWT',
+                'description': 'Production: Clerk JWT token from Authorization header'
+            },
+            'ClerkUserAuth': {
+                'type': 'apiKey',
+                'in': 'header',
+                'name': 'X-Clerk-User-ID',
+                'description': 'Development/Testing: Enter your clerk_user_id (e.g., user_2abc123...)'
             }
         }
+    },
+    'SECURITY': [
+        {'BearerAuth': []},
+        {'ClerkUserAuth': []}
     ],
-    # Suppress warnings
-    'AUTHENTICATION_WHITELIST': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ],
-    # Fix enum naming collisions
     'ENUM_NAME_OVERRIDES': {
         'StatusB86Enum': 'BookingStatusEnum',
         'Status728Enum': 'SubscriptionStatusEnum',
     },
-    # Suppress Clerk auth warnings
-    'PREPROCESSING_HOOKS': [
-        'drf_spectacular.hooks.preprocess_exclude_path_format',
-    ],
 }
 
 # CORS Configuration

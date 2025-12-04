@@ -12,7 +12,8 @@ class Notification(BaseModel):
     user = models.ForeignKey(
         'authentication.User',
         on_delete=models.CASCADE,
-        related_name='notifications'
+        related_name='notifications',
+        to_field='clerk_user_id'
     )
     
     title = models.CharField(max_length=255)

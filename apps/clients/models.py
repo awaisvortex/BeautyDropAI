@@ -14,7 +14,8 @@ class Client(BaseModel):
     user = models.OneToOneField(
         'authentication.User',
         on_delete=models.CASCADE,
-        related_name='client_profile'
+        related_name='client_profile',
+        to_field='clerk_user_id'
     )
     
     business_name = models.CharField(max_length=255)

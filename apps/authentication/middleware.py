@@ -3,7 +3,6 @@ Clerk authentication middleware
 """
 from django.utils.functional import SimpleLazyObject
 from django.contrib.auth.models import AnonymousUser
-from django.utils import timezone
 from .services.token_service import token_service
 from .services.clerk_service import clerk_service
 from .models import User
@@ -36,11 +35,6 @@ def get_user_from_token(request):
     try:
         # Try to get existing user
         user = User.objects.get(clerk_user_id=clerk_user_id)
-        
-        # Update last login
-        user.last_login_at = timezone.now()
-        user.save(update_fields=['last_login_at'])
-        
         return user
         
     except User.DoesNotExist:
@@ -51,7 +45,7 @@ def get_user_from_token(request):
             logger.warning(f"Could not fetch user data from Clerk for ID: {clerk_user_id}")
             return AnonymousUser()
         
-        # Create new user
+        # Create new user with synced data (including email_verified)
         user_data = clerk_service.sync_user_data(clerk_user_data)
         user = User.objects.create(**user_data)
         

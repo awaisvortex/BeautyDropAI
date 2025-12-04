@@ -2,12 +2,11 @@
 Authentication admin configuration
 """
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import User
 
 
 @admin.register(User)
-class UserAdmin(BaseUserAdmin):
+class UserAdmin(admin.ModelAdmin):
     """
     Admin configuration for User model
     """
@@ -21,17 +20,17 @@ class UserAdmin(BaseUserAdmin):
             'fields': ('clerk_user_id', 'email', 'email_verified')
         }),
         ('Personal Info', {
-            'fields': ('first_name', 'last_name', 'phone', 'avatar_url')
+            'fields': ('first_name', 'last_name')
         }),
-        ('Role & Permissions', {
-            'fields': ('role', 'is_active', 'is_staff', 'is_superuser')
+        ('Role & Status', {
+            'fields': ('role', 'is_active')
         }),
-        ('Important Dates', {
-            'fields': ('last_login_at', 'created_at', 'updated_at')
+        ('Timestamps', {
+            'fields': ('created_at',)
         }),
     )
     
-    readonly_fields = ['clerk_user_id', 'created_at', 'updated_at', 'last_login_at']
+    readonly_fields = ['clerk_user_id', 'email', 'created_at']
     
     add_fieldsets = (
         (None, {
@@ -39,3 +38,7 @@ class UserAdmin(BaseUserAdmin):
             'fields': ('clerk_user_id', 'email', 'role', 'first_name', 'last_name'),
         }),
     )
+    
+    def full_name(self, obj):
+        return obj.full_name
+    full_name.short_description = 'Full Name'

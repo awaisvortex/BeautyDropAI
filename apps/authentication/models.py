@@ -1,23 +1,23 @@
 """
 User model with Clerk integration
 """
-from django.contrib.auth.models import AbstractUser
 from django.db import models
-from apps.core.models import UUIDModel
 from apps.core.utils.constants import USER_ROLES, USER_ROLE_CUSTOMER
 from .managers import UserManager
 
 
-class User(UUIDModel, AbstractUser):
+class User(models.Model):
     """
-    Custom user model integrated with Clerk authentication
+    Custom user model integrated with Clerk authentication.
+    Uses clerk_user_id as the primary key.
     """
-    # Remove username field, use email instead
-    username = None
+    # Primary key - Clerk User ID
+    clerk_user_id = models.CharField(max_length=255, primary_key=True)
     
-    # Clerk integration
-    clerk_user_id = models.CharField(max_length=255, unique=True, db_index=True)
+    # Basic fields
     email = models.EmailField(unique=True, db_index=True)
+    first_name = models.CharField(max_length=150, blank=True)
+    last_name = models.CharField(max_length=150, blank=True)
     
     # User role
     role = models.CharField(
@@ -26,23 +26,15 @@ class User(UUIDModel, AbstractUser):
         default=USER_ROLE_CUSTOMER
     )
     
-    # Profile fields
-    first_name = models.CharField(max_length=150, blank=True)
-    last_name = models.CharField(max_length=150, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    avatar_url = models.URLField(blank=True)
-    
     # Status
     is_active = models.BooleanField(default=True)
     email_verified = models.BooleanField(default=False)
     
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    last_login_at = models.DateTimeField(null=True, blank=True)
     
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['clerk_user_id']
+    REQUIRED_FIELDS = []
     
     objects = UserManager()
     
@@ -59,6 +51,16 @@ class User(UUIDModel, AbstractUser):
     def full_name(self):
         """Return user's full name"""
         return f"{self.first_name} {self.last_name}".strip() or self.email
+    
+    @property
+    def is_anonymous(self):
+        """Always return False for authenticated users"""
+        return False
+    
+    @property
+    def is_authenticated(self):
+        """Always return True for User instances"""
+        return True
     
     def is_client(self):
         """Check if user is a client (salon owner)"""

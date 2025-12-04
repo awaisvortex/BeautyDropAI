@@ -14,7 +14,8 @@ class Customer(BaseModel):
     user = models.OneToOneField(
         'authentication.User',
         on_delete=models.CASCADE,
-        related_name='customer_profile'
+        related_name='customer_profile',
+        to_field='clerk_user_id'
     )
     
     phone = models.CharField(max_length=20, validators=[validate_phone_number], blank=True)

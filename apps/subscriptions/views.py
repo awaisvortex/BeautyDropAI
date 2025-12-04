@@ -139,7 +139,7 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['post'])
     def create_checkout_session(self, request):
         """Create Stripe checkout session"""
-        from infrastructure.integrations.stripe.client import stripe_client, STRIPE_PRICE_IDS
+        from apps.payments.services.stripe_service import stripe_client, STRIPE_PRICE_IDS
         
         serializer = CheckoutSessionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

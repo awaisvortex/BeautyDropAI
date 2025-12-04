@@ -20,7 +20,8 @@ class Subscription(BaseModel):
     user = models.ForeignKey(
         'authentication.User',
         on_delete=models.CASCADE,
-        related_name='subscriptions'
+        related_name='subscriptions',
+        to_field='clerk_user_id'
     )
     
     user_type = models.CharField(max_length=20)  # 'client' or 'customer'

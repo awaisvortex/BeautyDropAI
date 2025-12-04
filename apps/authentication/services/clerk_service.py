@@ -113,7 +113,6 @@ class ClerkService:
             'email': primary_email,
             'first_name': clerk_user_data.get('first_name', ''),
             'last_name': clerk_user_data.get('last_name', ''),
-            'avatar_url': clerk_user_data.get('image_url', ''),
             'email_verified': any(email.get('verification', {}).get('status') == 'verified' for email in email_addresses),
             'role': role,
         }

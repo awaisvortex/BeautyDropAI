@@ -1,18 +1,89 @@
 <img src="https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png" style="height:64px;margin-right:32px"/>
 
-# Django Salon Booking System - Backend Architecture
+# BeautyDrop AI - Django Backend
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [System Architecture](#system-architecture)
-3. [Database Schema](#database-schema)
-4. [Folder Structure](#folder-structure)
-5. [Authentication Flow](#authentication-flow)
-6. [API Endpoints](#api-endpoints)
-7. [Key Features \& Modules](#key-features--modules)
+1. [Quick Start](#quick-start)
+2. [Installation](#installation)
+3. [Overview](#overview)
+4. [System Architecture](#system-architecture)
+5. [Database Schema](#database-schema)
+6. [Folder Structure](#folder-structure)
+7. [Authentication Flow](#authentication-flow)
+8. [API Endpoints](#api-endpoints)
+9. [Key Features & Modules](#key-features--modules)
 
-***
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.13.7+
+- Clerk account (for authentication)
+- Stripe account (for payments)
+
+### Installation
+
+1. **Clone the repository**
+
+2. **Create and activate virtual environment**
+
+3. **Install dependencies**
+
+4. **Set up environment variables**
+
+Create a `.env` file in the project root:
+
+```bash
+# Django
+SECRET_KEY=your-secret-key-here
+DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1
+
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/beautydrop_db
+
+# Redis (optional)
+REDIS_URL=redis://localhost:6379/0
+
+# Clerk Authentication
+CLERK_SECRET_KEY=your_clerk_secret_key
+CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+CLERK_API_URL=https://api.clerk.com/v1
+
+# Stripe Payments
+STRIPE_SECRET_KEY=your_stripe_secret_key
+STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
+STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+
+# CORS
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+```
+
+5. **Create PostgreSQL database**
+6. **Run migrations**
+7. **Create superuser (optional)**
+8. **Run the development server**
+
+```bash
+python manage.py runserver 0.0.0.0:8002
+```
+
+The API will be available at `http://localhost:8002`
+
+### Access API Documentation
+
+- **Swagger UI**: http://localhost:8002/api/docs/
+### Authentication for Testing
+
+In Swagger, use one of:
+
+- **Bearer Token**: Paste Clerk JWT token (production)
+- **X-Clerk-User-ID** header: Enter `clerk_user_id` directly (development only)
+
+---
 
 ## Overview
 
@@ -23,7 +94,7 @@ This is a comprehensive backend architecture for a two-sided marketplace salon b
 - **Subscription Management**: Payment processing for both clients and users
 - **Clerk Authentication**: Secure authentication for both user types
 
-***
+---
 
 ## System Architecture
 
@@ -66,7 +137,7 @@ graph TB
     NGINX --> UserAPI
     NGINX --> SubAPI
     NGINX --> ScheduleAPI
-    
+
     Auth --> Clerk
     ClientAPI --> PostgreSQL
     UserAPI --> PostgreSQL
@@ -74,16 +145,15 @@ graph TB
     ScheduleAPI --> PostgreSQL
     SubAPI --> Stripe
     NotifAPI --> EmailService
-    
+
     ClientAPI --> Redis
     UserAPI --> Redis
     ScheduleAPI --> Redis
-    
+
     ScheduleAPI -.->|Future| CalendarSync
 ```
 
-
-***
+---
 
 ## Database Schema
 
@@ -92,35 +162,47 @@ erDiagram
     User ||--o{ Client : "can be"
     User ||--o{ Customer : "can be"
     User {
-        uuid id PK
-        string clerk_user_id UK
+        string clerk_user_id PK
         string email UK
+        string first_name
+        string last_name
         string role
-        datetime created_at
-        datetime updated_at
         boolean is_active
+        boolean email_verified
+        datetime created_at
     }
 
     Client ||--o{ Shop : "owns"
     Client {
         uuid id PK
-        uuid user_id FK
+        string clerk_user_id FK
         string business_name
         string phone
-        json subscription_details
-        datetime subscription_expires_at
+        datetime created_at
+        datetime updated_at
+    }
+
+    Customer {
+        uuid id PK
+        string clerk_user_id FK
+        string phone
+        datetime created_at
+        datetime updated_at
     }
 
     Shop ||--o{ Service : "offers"
-    Shop ||--o{ ShopSchedule : "has"
+    Shop ||--o{ Schedule : "has"
+    Shop ||--o{ StaffMember : "employs"
     Shop {
         uuid id PK
         uuid client_id FK
         string name
         string address
         string city
+        string state
         string postal_code
-        json contact_details
+        string phone
+        string email
         boolean is_active
         datetime created_at
         datetime updated_at
@@ -138,8 +220,27 @@ erDiagram
         datetime updated_at
     }
 
-    ShopSchedule ||--o{ TimeSlot : "contains"
-    ShopSchedule {
+    StaffMember ||--o{ StaffServiceAssignment : "assigned to"
+    StaffMember {
+        uuid id PK
+        uuid shop_id FK
+        string name
+        string phone
+        string email
+        boolean is_active
+        datetime created_at
+        datetime updated_at
+    }
+
+    StaffServiceAssignment {
+        uuid id PK
+        uuid staff_member_id FK
+        uuid service_id FK
+        datetime created_at
+    }
+
+    Schedule ||--o{ TimeSlot : "contains"
+    Schedule {
         uuid id PK
         uuid shop_id FK
         string day_of_week
@@ -147,76 +248,72 @@ erDiagram
         time end_time
         integer slot_duration_minutes
         boolean is_active
+        datetime created_at
+        datetime updated_at
     }
 
     TimeSlot ||--o| Booking : "booked by"
     TimeSlot {
         uuid id PK
         uuid schedule_id FK
-        datetime start_datetime
-        datetime end_datetime
+        uuid staff_member_id FK
+        datetime start_time
+        datetime end_time
         string status
         datetime created_at
+        datetime updated_at
     }
 
     Customer ||--o{ Booking : "makes"
-    Customer {
-        uuid id PK
-        uuid user_id FK
-        string phone
-        json subscription_details
-        datetime subscription_expires_at
-    }
-
     Booking ||--|| Service : "for"
+    Booking ||--|| StaffMember : "with"
     Booking {
         uuid id PK
         uuid customer_id FK
         uuid shop_id FK
         uuid service_id FK
         uuid time_slot_id FK
-        datetime booking_datetime
+        uuid staff_member_id FK
         string status
-        decimal total_price
-        text notes
+        decimal price
+        text customer_notes
+        text staff_notes
         datetime created_at
         datetime updated_at
     }
 
-    Subscription ||--o| Client : "subscribed by"
-    Subscription ||--o| Customer : "subscribed by"
+    User ||--o{ Subscription : "subscribes"
     Subscription {
         uuid id PK
-        uuid user_id FK
-        string user_type
+        string clerk_user_id FK
         string plan_type
+        string status
         decimal amount
-        string payment_provider_id
+        string stripe_subscription_id
         datetime start_date
         datetime end_date
-        string status
         datetime created_at
+        datetime updated_at
     }
 
-    Payment ||--|| Subscription : "for"
-    Payment {
+    User ||--o{ Notification : "receives"
+    Notification {
         uuid id PK
-        uuid subscription_id FK
-        decimal amount
-        string payment_method
-        string transaction_id
-        string status
-        datetime payment_date
+        string clerk_user_id FK
+        string notification_type
+        string title
+        text message
+        boolean is_read
+        datetime created_at
     }
 ```
 
-
-***
+---
 
 ## Folder Structure
 
 ```
-salon_booking_system/
+BeautyDropAI/
 │
 ├── manage.py
 ├── requirements.txt
@@ -230,180 +327,111 @@ salon_booking_system/
 │   │   ├── __init__.py
 │   │   ├── base.py                        # Base settings
 │   │   ├── development.py                 # Dev environment
-│   │   ├── production.py                  # Prod environment
-│   │   └── testing.py                     # Test environment
+│   │   └── production.py                  # Prod environment
 │   ├── urls.py                            # Root URL configuration
 │   ├── wsgi.py
 │   └── asgi.py
 │
 ├── apps/                                   # All Django apps
 │   │
-│   ├── authentication/                     # Clerk authentication integration
-│   │   ├── __init__.py
-│   │   ├── models.py                      # User model (extends AbstractUser)
+│   ├── authentication/                     # Clerk authentication
+│   │   ├── models.py                      # User model (clerk_user_id as PK)
 │   │   ├── serializers.py
 │   │   ├── views.py
 │   │   ├── urls.py
 │   │   ├── middleware.py                  # Clerk JWT validation
-│   │   ├── permissions.py                 # Custom permissions
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   ├── clerk_service.py          # Clerk API integration
-│   │   │   └── token_service.py          # Token validation
-│   │   └── tests/
+│   │   ├── auth_backends.py               # ClerkJWTAuthentication
+│   │   ├── managers.py                    # Custom user manager
+│   │   ├── admin.py
+│   │   └── services/
+│   │       ├── clerk_service.py           # Clerk SDK integration
+│   │       ├── clerk_api.py               # Clerk API client
+│   │       ├── token_service.py           # Token validation
+│   │       └── user_data_service.py       # Real-time user data from Clerk
 │   │
-│   ├── clients/                           # Client (Salon Owner) management
-│   │   ├── __init__.py
-│   │   ├── models.py                      # Client model
+│   ├── core/                              # Shared utilities
+│   │   ├── models.py                      # BaseModel, UUIDModel
+│   │   ├── pagination.py
+│   │   ├── exceptions.py
+│   │   ├── schema.py                      # DRF Spectacular customization
+│   │   └── utils/
+│   │       └── constants.py
+│   │
+│   ├── payments/                          # Payment processing (NEW)
+│   │   ├── models.py                      # Payment models (future)
+│   │   ├── admin.py
+│   │   ├── services/
+│   │   │   └── stripe_service.py          # Stripe integration
+│   │   └── apps.py
+│   │
+│   ├── clients/                           # Salon owners
+│   │   ├── models.py                      # Client profile
 │   │   ├── serializers.py
 │   │   ├── views.py
 │   │   ├── urls.py
-│   │   ├── permissions.py
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   └── client_service.py
-│   │   └── tests/
+│   │   └── admin.py
+│   │
+│   ├── customers/                         # End users
+│   │   ├── models.py                      # Customer profile
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   ├── urls.py
+│   │   └── admin.py
 │   │
 │   ├── shops/                             # Shop management
-│   │   ├── __init__.py
 │   │   ├── models.py                      # Shop model
 │   │   ├── serializers.py
 │   │   ├── views.py
 │   │   ├── urls.py
-│   │   ├── permissions.py
-│   │   ├── filters.py                     # Django filters for search
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   └── shop_service.py
-│   │   └── tests/
+│   │   ├── filters.py
+│   │   └── admin.py
 │   │
 │   ├── services/                          # Services offered by shops
-│   │   ├── __init__.py
 │   │   ├── models.py                      # Service model
 │   │   ├── serializers.py
 │   │   ├── views.py
 │   │   ├── urls.py
-│   │   ├── permissions.py
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   └── service_management.py
-│   │   └── tests/
+│   │   └── admin.py
 │   │
-│   ├── schedules/                         # Availability scheduling (Cal.com-like)
-│   │   ├── __init__.py
-│   │   ├── models.py                      # ShopSchedule, TimeSlot models
+│   ├── staff/                             # Staff management
+│   │   ├── models.py                      # StaffMember, StaffServiceAssignment
 │   │   ├── serializers.py
 │   │   ├── views.py
 │   │   ├── urls.py
-│   │   ├── permissions.py
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   ├── schedule_generator.py     # Generate time slots
-│   │   │   ├── availability_checker.py   # Check slot availability
-│   │   │   └── calendar_sync.py          # Future: Google Calendar integration
-│   │   ├── utils/
-│   │   │   ├── __init__.py
-│   │   │   └── time_utils.py             # Time zone handling
-│   │   └── tests/
+│   │   └── admin.py
+│   │
+│   ├── schedules/                         # Availability scheduling
+│   │   ├── models.py                      # Schedule, TimeSlot
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   ├── urls.py
+│   │   └── admin.py
 │   │
 │   ├── bookings/                          # Booking management
-│   │   ├── __init__.py
 │   │   ├── models.py                      # Booking model
 │   │   ├── serializers.py
 │   │   ├── views.py
 │   │   ├── urls.py
-│   │   ├── permissions.py
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   ├── booking_service.py        # Booking logic
-│   │   │   └── cancellation_service.py   # Cancellation handling
-│   │   ├── signals.py                     # Post-booking notifications
-│   │   └── tests/
-│   │
-│   ├── customers/                         # Customer management
-│   │   ├── __init__.py
-│   │   ├── models.py                      # Customer model
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── urls.py
-│   │   ├── permissions.py
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   └── customer_service.py
-│   │   └── tests/
+│   │   └── admin.py
 │   │
 │   ├── subscriptions/                     # Subscription management
-│   │   ├── __init__.py
-│   │   ├── models.py                      # Subscription, Payment models
+│   │   ├── models.py                      # Subscription model
 │   │   ├── serializers.py
 │   │   ├── views.py
 │   │   ├── urls.py
-│   │   ├── permissions.py
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   ├── subscription_service.py   # Subscription logic
-│   │   │   ├── payment_service.py        # Payment processing
-│   │   │   └── stripe_service.py         # Stripe integration
-│   │   ├── webhooks.py                    # Payment webhooks
-│   │   └── tests/
+│   │   └── admin.py
 │   │
-│   ├── notifications/                     # Notification system
-│   │   ├── __init__.py
-│   │   ├── models.py                      # Notification model
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── urls.py
-│   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   ├── email_service.py
-│   │   │   ├── sms_service.py            # Future: SMS notifications
-│   │   │   └── push_notification.py      # Future: Push notifications
-│   │   └── tests/
-│   │
-│   └── core/                              # Shared utilities
-│       ├── __init__.py
-│       ├── models.py                      # Abstract base models
-│       ├── serializers.py                 # Base serializers
-│       ├── permissions.py                 # Global permissions
-│       ├── pagination.py                  # Custom pagination
-│       ├── exceptions.py                  # Custom exceptions
-│       ├── validators.py                  # Custom validators
-│       └── utils/
-│           ├── __init__.py
-│           ├── helpers.py
-│           └── constants.py
+│   └── notifications/                     # Notifications
+│       ├── models.py                      # Notification model
+│       ├── serializers.py
+│       ├── views.py
+│       ├── urls.py
+│       └── admin.py
 │
-├── infrastructure/                        # Infrastructure code
-│   ├── __init__.py
-│   ├── cache/
-│   │   ├── __init__.py
-│   │   └── redis_client.py
-│   ├── storage/
-│   │   ├── __init__.py
-│   │   └── file_storage.py
-│   └── integrations/
-│       ├── __init__.py
-│       ├── clerk/
-│       │   ├── __init__.py
-│       │   └── client.py
-│       ├── stripe/
-│       │   ├── __init__.py
-│       │   └── client.py
-│       └── google_calendar/              # Future integration
-│           ├── __init__.py
-│           └── client.py
-│
-├── scripts/                               # Management scripts
-│   ├── __init__.py
-│   ├── seed_data.py
-│   └── generate_slots.py
-│
-└── tests/                                 # Integration tests
+└── scripts/                               # Management scripts
     ├── __init__.py
-    ├── integration/
-    └── e2e/
+    └── seed_data.py
 ```
-
 
 ***
 
@@ -423,18 +451,17 @@ sequenceDiagram
     Frontend->>Django API: Request with JWT Token
     Django API->>Clerk: Validate Token
     Clerk-->>Django API: Token Valid + User Info
-    
+
     alt User doesn't exist in Django DB
         Django API->>Database: Create User Record
         Database-->>Django API: User Created
     end
-    
+
     Django API->>Database: Fetch/Update User
     Database-->>Django API: User Data
     Django API-->>Frontend: Response with User Data
     Frontend-->>Client/User: Display Dashboard
 ```
-
 
 ### Authentication Middleware Flow
 
@@ -455,8 +482,7 @@ flowchart TD
     L --> M[Continue to View]
 ```
 
-
-***
+---
 
 ## API Endpoints
 
@@ -470,7 +496,6 @@ GET    /api/v1/auth/me/                 # Get current user info
 PUT    /api/v1/auth/profile/            # Update profile
 ```
 
-
 ### Client Module
 
 ```
@@ -479,7 +504,6 @@ GET    /api/v1/clients/me/              # Get client profile
 PUT    /api/v1/clients/me/              # Update client profile
 GET    /api/v1/clients/dashboard/       # Client dashboard stats
 ```
-
 
 ### Shop Module
 
@@ -494,7 +518,6 @@ GET    /api/v1/shops/{id}/services/     # Shop services
 GET    /api/v1/shops/search/            # Search shops by location/name
 ```
 
-
 ### Service Module
 
 ```
@@ -504,7 +527,6 @@ PUT    /api/v1/services/{id}/           # Update service
 DELETE /api/v1/services/{id}/           # Delete service
 GET    /api/v1/services/shop/{shop_id}/ # All services for a shop
 ```
-
 
 ### Schedule Module (Cal.com-like)
 
@@ -517,7 +539,6 @@ GET    /api/v1/schedules/{id}/available-slots/    # Get available slots
 POST   /api/v1/schedules/generate-slots/          # Generate time slots
 GET    /api/v1/schedules/calendar-view/{shop_id}/ # Calendar view
 ```
-
 
 ### Booking Module
 
@@ -532,7 +553,6 @@ GET    /api/v1/bookings/upcoming/       # Upcoming bookings
 GET    /api/v1/bookings/history/        # Booking history
 ```
 
-
 ### Customer Module
 
 ```
@@ -542,7 +562,6 @@ PUT    /api/v1/customers/me/            # Update customer profile
 GET    /api/v1/customers/favorites/     # Favorite shops
 POST   /api/v1/customers/favorites/{shop_id}/ # Add favorite
 ```
-
 
 ### Subscription Module
 
@@ -556,8 +575,7 @@ POST   /api/v1/subscriptions/webhooks/  # Payment webhooks
 GET    /api/v1/subscriptions/invoices/  # Payment history
 ```
 
-
-***
+---
 
 ## Key Features \& Modules
 
@@ -578,7 +596,7 @@ GET    /api/v1/subscriptions/invoices/  # Payment history
 - User creation on first authentication
 - Session management via Redis
 
-***
+---
 
 ### 2. Schedule Management (Cal.com-like)
 
@@ -590,13 +608,13 @@ flowchart TD
     D --> E[Set Slot Duration]
     E --> F[Generate Time Slots]
     F --> G[Store in Database]
-    
+
     H[User Views Shop] --> I[Fetch Shop Schedules]
     I --> J[Generate Available Slots]
     J --> K{Check Slot Status}
     K -->|Available| L[Display to User]
     K -->|Booked| M[Mark as Unavailable]
-    
+
     L --> N[User Selects Slot]
     N --> O[Create Booking]
     O --> P[Update Slot Status]
@@ -611,7 +629,7 @@ flowchart TD
 - Buffer time between appointments (future)
 - Multiple schedules per shop (future)
 
-***
+---
 
 ### 3. Booking Flow
 
@@ -626,17 +644,17 @@ sequenceDiagram
     Customer->>Frontend: Browse Shops
     Frontend->>API: GET /api/v1/shops/
     API-->>Frontend: Shop List
-    
+
     Customer->>Frontend: Select Shop
     Frontend->>API: GET /api/v1/schedules/calendar-view/{shop_id}
     API->>Database: Fetch Available Slots
     Database-->>API: Available Slots
     API-->>Frontend: Calendar Data
-    
+
     Customer->>Frontend: Select Service & Slot
     Frontend->>API: POST /api/v1/bookings/
     API->>Database: Check Slot Availability
-    
+
     alt Slot Available
         Database-->>API: Slot Available
         API->>Database: Create Booking & Lock Slot
@@ -650,8 +668,7 @@ sequenceDiagram
     end
 ```
 
-
-***
+---
 
 ### 4. Subscription Management
 
@@ -661,22 +678,22 @@ flowchart TD
     B --> C[Free Trial]
     B --> D[Basic Plan]
     B --> E[Premium Plan]
-    
+
     C --> F[Create Subscription]
     D --> F
     E --> F
-    
+
     F --> G[Redirect to Stripe]
     G --> H[Process Payment]
     H --> I{Payment Success?}
-    
+
     I -->|Yes| J[Activate Subscription]
     I -->|No| K[Show Error]
-    
+
     J --> L[Store in Database]
     L --> M[Send Confirmation]
     M --> N[Enable Features]
-    
+
     O[Webhook from Stripe] --> P{Event Type?}
     P -->|payment_succeeded| Q[Extend Subscription]
     P -->|payment_failed| R[Mark as Overdue]
@@ -685,17 +702,15 @@ flowchart TD
 
 **Subscription Plans** (Example):
 
+| Feature                   | Free | Basic | Premium   |
+| :------------------------ | :--- | :---- | :-------- |
+| Shops (Client)            | 1    | 3     | Unlimited |
+| Bookings/Month (Customer) | 2    | 10    | Unlimited |
+| Calendar Integration      | ❌   | ❌    | ✅        |
+| Priority Support          | ❌   | ✅    | ✅        |
+| Analytics Dashboard       | ❌   | ✅    | ✅        |
 
-| Feature | Free | Basic | Premium |
-| :-- | :-- | :-- | :-- |
-| Shops (Client) | 1 | 3 | Unlimited |
-| Bookings/Month (Customer) | 2 | 10 | Unlimited |
-| Calendar Integration | ❌ | ❌ | ✅ |
-| Priority Support | ❌ | ✅ | ✅ |
-| Analytics Dashboard | ❌ | ✅ | ✅ |
-
-
-***
+---
 
 ### 5. Modular Integration Points
 
@@ -718,7 +733,7 @@ graph LR
 - `apps/reviews/` - Customer review system
 - `apps/payments/` - Multiple payment gateways
 
-***
+---
 
 ## Scalability Considerations
 
@@ -727,7 +742,6 @@ graph LR
 - **Indexing**: Add indexes on frequently queried fields (shop location, dates, clerk_user_id)
 - **Connection Pooling**: Use pgBouncer for PostgreSQL
 - **Read Replicas**: For read-heavy operations (shop browsing)
-
 
 ### 2. Caching Strategy
 
@@ -747,7 +761,6 @@ flowchart LR
 - Available slots: `slots:{shop_id}:{date}`
 - User subscriptions: `subscription:{user_id}`
 
-
 ### 3. Asynchronous Tasks
 
 Use **Celery** for:
@@ -757,35 +770,34 @@ Use **Celery** for:
 - Processing payments
 - Syncing with external calendars
 
-
 ### 4. API Versioning
 
 - Current: `/api/v1/`
 - Future: `/api/v2/` for breaking changes
 
-***
+---
 
 ## Security Considerations
 
 1. **Authentication**:
-    - JWT validation via Clerk
-    - Token expiration handling
-    - Refresh token mechanism
+   - JWT validation via Clerk
+   - Token expiration handling
+   - Refresh token mechanism
 2. **Authorization**:
-    - Role-based permissions (Client vs Customer)
-    - Shop ownership verification
-    - Booking ownership verification
+   - Role-based permissions (Client vs Customer)
+   - Shop ownership verification
+   - Booking ownership verification
 3. **Data Protection**:
-    - Encrypted passwords (handled by Clerk)
-    - HTTPS only in production
-    - Rate limiting on API endpoints
-    - SQL injection protection (Django ORM)
+   - Encrypted passwords (handled by Clerk)
+   - HTTPS only in production
+   - Rate limiting on API endpoints
+   - SQL injection protection (Django ORM)
 4. **Payment Security**:
-    - PCI compliance via Stripe
-    - Webhook signature verification
-    - No card data stored locally
+   - PCI compliance via Stripe
+   - Webhook signature verification
+   - No card data stored locally
 
-***
+---
 
 ## Environment Variables
 
@@ -819,8 +831,7 @@ GOOGLE_CALENDAR_CLIENT_ID=your-client-id
 GOOGLE_CALENDAR_CLIENT_SECRET=your-client-secret
 ```
 
-
-***
+---
 
 ## Next Steps
 
@@ -834,26 +845,26 @@ GOOGLE_CALENDAR_CLIENT_SECRET=your-client-secret
 8. **Write comprehensive tests**
 9. **Deploy to staging** environment
 
-***
+---
 
 ## Technology Stack Summary
 
-| Component | Technology |
-| :-- | :-- |
-| Framework | Django 4.2+ |
-| Database | PostgreSQL 15+ |
-| Cache | Redis 7+ |
-| Authentication | Clerk |
-| Payment | Stripe |
-| Task Queue | Celery + Redis |
-| API | Django REST Framework |
-| Testing | Pytest |
-| Deployment | Docker + Docker Compose |
+| Component      | Technology              |
+| :------------- | :---------------------- |
+| Framework      | Django 4.2+             |
+| Database       | PostgreSQL 15+          |
+| Cache          | Redis 7+                |
+| Authentication | Clerk                   |
+| Payment        | Stripe                  |
+| Task Queue     | Celery + Redis          |
+| API            | Django REST Framework   |
+| Testing        | Pytest                  |
+| Deployment     | Docker + Docker Compose |
 
-
-***
+---
 
 This architecture provides a solid foundation for a scalable, modular salon booking system. Each module is independent and can be extended without affecting others. The structure supports future integrations like Google Calendar while maintaining clean separation of concerns.
 
-#   B e a u t y D r o p A I  
+#   B e a u t y D r o p A I 
+ 
  

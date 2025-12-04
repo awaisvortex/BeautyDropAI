@@ -1,11 +1,8 @@
 """
-Custom authentication classes for Clerk and JWT
+Custom authentication classes for Clerk
 """
-from rest_framework import authentication, exceptions
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.conf import settings
+from rest_framework import authentication
 import jwt
-import requests
 
 from .models import User
 from .services.clerk_service import clerk_service
@@ -13,7 +10,7 @@ from .services.clerk_service import clerk_service
 
 class ClerkJWTAuthentication(authentication.BaseAuthentication):
     """
-    Custom authentication class for Clerk JWT tokens
+    Authentication class for Clerk JWT tokens (Bearer token)
     """
     
     def authenticate(self, request):
@@ -25,40 +22,34 @@ class ClerkJWTAuthentication(authentication.BaseAuthentication):
         token = auth_header.split(' ')[1]
         
         try:
-            # Try to decode as Clerk token
-            # Clerk tokens have different structure than our JWT tokens
+            # Decode Clerk token
             decoded = jwt.decode(
                 token,
-                options={"verify_signature": False}  # Clerk handles verification
+                options={"verify_signature": False}  # TODO: Implement proper JWKS verification
             )
             
             # Check if it's a Clerk token (has 'azp' claim)
             if 'azp' not in decoded:
                 return None
             
-            # Get or create user from Clerk data
+            # Get or create user
             clerk_user_id = decoded.get('sub')
-            email = decoded.get('email')
-            
             if not clerk_user_id:
                 return None
             
-            # Check if user exists
             try:
                 user = User.objects.get(clerk_user_id=clerk_user_id)
             except User.DoesNotExist:
-                # User doesn't exist, fetch from Clerk to get role and other details
+                # Fetch from Clerk API and create
                 clerk_user_data = clerk_service.get_user(clerk_user_id)
-                
                 if clerk_user_data:
                     user_data = clerk_service.sync_user_data(clerk_user_data)
                     user = User.objects.create(**user_data)
                 else:
-                    # Fallback if Clerk API fails (shouldn't happen if token is valid but possible)
-                    # Create basic user with default role (customer)
+                    # Fallback: create with minimal data from token
                     user = User.objects.create(
                         clerk_user_id=clerk_user_id,
-                        email=email or f'{clerk_user_id}@clerk.temp',
+                        email=decoded.get('email', f'{clerk_user_id}@clerk.temp'),
                         email_verified=decoded.get('email_verified', False)
                     )
             
@@ -71,3 +62,25 @@ class ClerkJWTAuthentication(authentication.BaseAuthentication):
     
     def authenticate_header(self, request):
         return 'Bearer realm="api"'
+
+
+class ClerkUserIdAuthentication(authentication.BaseAuthentication):
+    """
+    Development-only authentication using X-Clerk-User-ID header.
+    For Swagger testing convenience.
+    """
+    
+    def authenticate(self, request):
+        clerk_user_id = request.META.get('HTTP_X_CLERK_USER_ID')
+        
+        if not clerk_user_id:
+            return None
+        
+        try:
+            user = User.objects.get(clerk_user_id=clerk_user_id)
+            return (user, None)
+        except User.DoesNotExist:
+            return None
+    
+    def authenticate_header(self, request):
+        return 'X-Clerk-User-ID'
