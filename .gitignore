@@ -64,6 +64,13 @@ coverage.xml
 .env.*.local
 local_settings.py
 
+# --- GCP Service Account Keys & CI/CD Secrets ---
+# NEVER commit service account keys or Cloud Run env files
+github-actions-key.json
+*-service-account-key.json
+cloudrun-env.yaml
+cloudrun-env-template.yaml
+
 # --- IDE & Editors ---
 .vscode/
 .idea/

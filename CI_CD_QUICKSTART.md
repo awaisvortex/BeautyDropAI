@@ -1,8 +1,21 @@
 # CI/CD Quick Start Guide
 
-## 🚀 One-Command Setup
+## ⚠️ Prerequisites
 
-Run this script to automatically create the service account and generate the key:
+Your GCP account needs **admin permissions** to set up CI/CD. If you see permission errors, see [`CI_CD_SETUP_NEEDED.md`](CI_CD_SETUP_NEEDED.md) for alternatives.
+
+## 🚀 One-Command Setup (Requires Admin)
+
+### Option 1: Workload Identity Federation (Recommended - No Keys!)
+
+```bash
+cd /Users/softwareengineer-frontend/Desktop/BeautyDropAI
+CLOUDSDK_PYTHON=/usr/bin/python3 ./scripts/setup-workload-identity.sh
+```
+
+This will output three GitHub secrets you need to add.
+
+### Option 2: Service Account Keys (Fallback)
 
 ```bash
 cd /Users/softwareengineer-frontend/Desktop/BeautyDropAI
@@ -15,18 +28,39 @@ This will:
 3. Generate `github-actions-key.json`
 4. Create `cloudrun-env-template.yaml` template
 
+⚠️ **Note**: Your organization may block service account key creation for security
+
 ## 📝 Add GitHub Secrets (Required)
 
 Go to: https://github.com/awaisvortex/BeautyDropAI/settings/secrets/actions
 
-### Secret 1: `GCP_SERVICE_ACCOUNT_KEY`
+### For Workload Identity (Option 1)
+
+**Secret 1: `WIF_PROVIDER`**
+```
+projects/497422674710/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
+```
+(Get this from the setup script output)
+
+**Secret 2: `WIF_SERVICE_ACCOUNT`**
+```
+github-actions-deployer@beautydrop-dev.iam.gserviceaccount.com
+```
+
+**Secret 3: `CLOUD_RUN_ENV_YAML`**
+
+### For Service Account Keys (Option 2)
+
+**Secret 1: `GCP_SERVICE_ACCOUNT_KEY`**
 ```bash
 # Copy the entire JSON output from the script
 cat github-actions-key.json
 ```
 Paste as GitHub secret value.
 
-### Secret 2: `CLOUD_RUN_ENV_YAML`
+**Secret 2: `CLOUD_RUN_ENV_YAML`**
+
+### Environment Variables (Both Options)
 ```yaml
 # Use your actual production values (YAML format)
 SECRET_KEY: "your-production-secret"
