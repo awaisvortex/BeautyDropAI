@@ -21,7 +21,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         model = Service
         fields = [
             'id', 'shop', 'shop_name', 'name', 'description',
-            'price', 'duration_minutes', 'category', 'image_url',
+            'price', 'duration_minutes', 'buffer_minutes', 'category', 'image_url',
             'is_active', 'booking_count', 'assigned_staff', 
             'created_at', 'updated_at'
         ]
@@ -31,10 +31,19 @@ class ServiceSerializer(serializers.ModelSerializer):
 class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating services"""
     shop_id = serializers.UUIDField(write_only=True, required=False)
+    buffer_minutes = serializers.IntegerField(
+        default=15,
+        min_value=0,
+        max_value=120,
+        help_text='Minimum time buffer (minutes) before earliest bookable slot'
+    )
     
     class Meta:
         model = Service
-        fields = ['shop_id', 'name', 'description', 'price', 'duration_minutes', 'is_active', 'category']
+        fields = [
+            'shop_id', 'name', 'description', 'price', 
+            'duration_minutes', 'buffer_minutes', 'is_active', 'category'
+        ]
     
     def validate_price(self, value):
         if value < 0:

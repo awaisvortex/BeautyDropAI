@@ -13,25 +13,29 @@ from apps.core.permissions import IsClient, IsShopOwner
 from .models import ShopSchedule, TimeSlot
 from .serializers import (
     ShopScheduleSerializer,
-    ShopScheduleCreateUpdateSerializer,
+    BulkScheduleCreateSerializer,
+    BulkScheduleResponseSerializer,
     TimeSlotSerializer,
     TimeSlotGenerateSerializer,
     TimeSlotGenerateResponseSerializer,
-    AvailabilityCheckSerializer,
-    AvailabilityResponseSerializer,
-    TimeSlotBlockSerializer
+    TimeSlotBlockSerializer,
+    DynamicAvailabilityRequestSerializer,
+    DynamicAvailabilityResponseSerializer,
+    AvailableSlotSerializer
 )
+from .services.availability import AvailabilityService
 
 
-class ShopScheduleViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing shop schedules"""
-    queryset = ShopSchedule.objects.select_related('shop__client__user')
-    permission_classes = [IsAuthenticated]
+class ShopScheduleViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
+    """
+    ViewSet for managing shop schedules.
     
-    def get_serializer_class(self):
-        if self.action in ['create', 'update', 'partial_update']:
-            return ShopScheduleCreateUpdateSerializer
-        return ShopScheduleSerializer
+    Use bulk_create to set shop hours for multiple days at once.
+    Individual CRUD operations are not needed - bulk_create handles create/update.
+    """
+    queryset = ShopSchedule.objects.select_related('shop__client__user')
+    serializer_class = ShopScheduleSerializer
+    permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -60,33 +64,31 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
         return super().list(request, *args, **kwargs)
     
     @extend_schema(
-        summary="Create shop schedule",
-        description="Create a new schedule for a shop (salon owners only). Requires shop_id in request body.",
-        request=ShopScheduleCreateUpdateSerializer,
+        summary="Set shop hours (bulk create/update)",
+        description="""
+        Set shop hours for multiple days at once.
+        
+        Example: Set Monday-Friday 9AM-6PM in one call.
+        Existing schedules for those days will be updated automatically.
+        """,
+        request=BulkScheduleCreateSerializer,
         responses={
-            201: ShopScheduleSerializer,
+            200: BulkScheduleResponseSerializer,
             400: OpenApiResponse(description="Bad Request"),
-            403: OpenApiResponse(description="Forbidden")
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Shop not found")
         },
         tags=['Schedules - Client']
     )
-    def create(self, request, *args, **kwargs):
-        if request.user.role != 'client':
-            return Response(
-                {'error': 'Only salon owners can create schedules'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        serializer = self.get_serializer(data=request.data)
+    @action(detail=False, methods=['post'], permission_classes=[IsClient])
+    def bulk_create(self, request):
+        """Create/update schedules for multiple days at once."""
+        serializer = BulkScheduleCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        # Get shop from request data
-        shop_id = request.data.get('shop_id')
-        if not shop_id:
-            return Response(
-                {'error': 'shop_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        shop_id = serializer.validated_data['shop_id']
+        start_time = serializer.validated_data['start_time']
+        end_time = serializer.validated_data['end_time']
         
         # Verify shop ownership
         from apps.shops.models import Shop
@@ -98,95 +100,57 @@ class ShopScheduleViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Get days in range
+        days = serializer.get_days_in_range()
         
-        # Check if schedule already exists for this day
-        existing_schedule = ShopSchedule.objects.filter(
-            shop=shop,
-            day_of_week=serializer.validated_data['day_of_week']
-        ).first()
+        created_count = 0
+        updated_count = 0
         
-        if existing_schedule:
-            return Response(
-                {
-                    'error': f'A schedule for {serializer.validated_data["day_of_week"]} already exists for this shop',
-                    'existing_schedule_id': str(existing_schedule.id),
-                    'message': 'Use PUT or PATCH to update the existing schedule'
-                },
-                status=status.HTTP_409_CONFLICT
+        for day in days:
+            schedule, created = ShopSchedule.objects.update_or_create(
+                shop=shop,
+                day_of_week=day,
+                defaults={
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'is_active': True
+                }
             )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
         
-        schedule = serializer.save(shop=shop)
-        return Response(
-            ShopScheduleSerializer(schedule).data,
-            status=status.HTTP_201_CREATED
-        )
-    
-    @extend_schema(
-        summary="Get schedule details",
-        description="Retrieve detailed information about a specific schedule",
-        responses={
-            200: ShopScheduleSerializer,
-            404: OpenApiResponse(description="Schedule not found")
-        },
-        tags=['Schedules - Client']
-    )
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Update shop schedule",
-        description="Update schedule details (salon owners only)",
-        request=ShopScheduleCreateUpdateSerializer,
-        responses={
-            200: ShopScheduleSerializer,
-            400: OpenApiResponse(description="Bad Request"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Schedule not found")
-        },
-        tags=['Schedules - Client']
-    )
-    def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Partial update shop schedule",
-        description="Partially update schedule details (salon owners only)",
-        request=ShopScheduleCreateUpdateSerializer,
-        responses={
-            200: ShopScheduleSerializer,
-            400: OpenApiResponse(description="Bad Request"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Schedule not found")
-        },
-        tags=['Schedules - Client']
-    )
-    def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Delete shop schedule",
-        description="Delete a schedule (salon owners only)",
-        responses={
-            204: OpenApiResponse(description="Schedule deleted successfully"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Schedule not found")
-        },
-        tags=['Schedules - Client']
-    )
-    def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
+        return Response({
+            'message': f'Successfully configured {len(days)} days',
+            'schedules_created': created_count,
+            'schedules_updated': updated_count,
+            'days': days,
+            'shop_hours': {
+                'start_time': start_time.isoformat(),
+                'end_time': end_time.isoformat()
+            }
+        })
     
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['list', 'retrieve']:
+        if self.action == 'list':
             return [AllowAny()]
-        elif self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsClient(), IsShopOwner()]
+        elif self.action == 'bulk_create':
+            return [IsClient()]
         return super().get_permissions()
 
 
-class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
-    """ViewSet for viewing time slots"""
+class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
+    """
+    ViewSet for managing time slots.
+    
+    Main endpoints:
+    - list: View manual slots (filtered by shop/date/status)
+    - generate: Create manual slots for special requests
+    - dynamic_availability: Get available slots dynamically (recommended)
+    - block/unblock: Block manual slots
+    """
     queryset = TimeSlot.objects.select_related('schedule__shop')
     serializer_class = TimeSlotSerializer
     permission_classes = [IsAuthenticated]
@@ -212,8 +176,8 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         return queryset.order_by('start_datetime')
     
     @extend_schema(
-        summary="List time slots",
-        description="Get time slots with optional filters",
+        summary="List manual time slots",
+        description="Get manually created time slots. Use dynamic_availability for available booking slots.",
         parameters=[
             OpenApiParameter('shop_id', OpenApiTypes.UUID, description='Filter by shop ID'),
             OpenApiParameter('date', str, description='Filter by date (YYYY-MM-DD)'),
@@ -226,101 +190,18 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         return super().list(request, *args, **kwargs)
     
     @extend_schema(
-        summary="Get time slot details",
-        description="Retrieve detailed information about a specific time slot",
-        responses={
-            200: TimeSlotSerializer,
-            404: OpenApiResponse(description="Time slot not found")
-        },
-        tags=['Schedules - Public']
-    )
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Update time slot",
-        description="Update time slot details (salon owners only)",
-        request=TimeSlotSerializer,
-        responses={
-            200: TimeSlotSerializer,
-            400: OpenApiResponse(description="Bad Request"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Time slot not found")
-        },
-        tags=['Schedules - Client']
-    )
-    def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Partial update time slot",
-        description="Partially update time slot details (salon owners only)",
-        request=TimeSlotSerializer,
-        responses={
-            200: TimeSlotSerializer,
-            400: OpenApiResponse(description="Bad Request"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Time slot not found")
-        },
-        tags=['Schedules - Client']
-    )
-    def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Assign staff to time slot",
-        description="Bind a specific staff member to a time slot. This makes the slot exclusive to that staff member (salon owners only).",
-        parameters=[
-            OpenApiParameter('staff_member_id', OpenApiTypes.UUID, description='Staff member ID to assign (leave empty to unbind)', required=False),
-        ],
-        responses={
-            200: TimeSlotSerializer,
-            400: OpenApiResponse(description="Bad Request - Staff not found or doesn't belong to shop"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Time slot not found")
-        },
-        tags=['Schedules - Client']
-    )
-    @action(detail=True, methods=['patch'], permission_classes=[IsClient, IsShopOwner])
-    def assign_staff(self, request, pk=None):
-        """Assign or unbind staff from a time slot"""
-        time_slot = self.get_object()
-        staff_member_id = request.query_params.get('staff_member_id')
+        summary="Create manual time slot (Special Requests)",
+        description="""
+        Create a manual time slot for special requests only.
         
-        if staff_member_id:
-            # Assign staff to slot
-            from apps.staff.models import StaffMember
-            try:
-                staff_member = StaffMember.objects.get(
-                    id=staff_member_id,
-                    shop=time_slot.schedule.shop,
-                    is_active=True
-                )
-                time_slot.staff_member = staff_member
-                time_slot.save(update_fields=['staff_member'])
-                
-                return Response(
-                    TimeSlotSerializer(time_slot).data,
-                    status=status.HTTP_200_OK
-                )
-            except StaffMember.DoesNotExist:
-                return Response(
-                    {'error': 'Staff member not found or not available at this shop'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        else:
-            # Unbind staff from slot
-            time_slot.staff_member = None
-            time_slot.save(update_fields=['staff_member'])
-            
-            return Response(
-                TimeSlotSerializer(time_slot).data,
-                status=status.HTTP_200_OK
-            )
-    
-    @extend_schema(
-        summary="Generate time slots",
-        description="Generate time slots for a shop based on its schedules (salon owners only)",
+        Use this endpoint ONLY for:
+        - VIP bookings with custom times
+        - Special event reservations
+        - Blocked times for maintenance/breaks
+        
+        For regular bookings, use /dynamic_availability/ + /dynamic_book/ instead.
+        Manual slots are automatically considered in dynamic availability calculations.
+        """,
         request=TimeSlotGenerateSerializer,
         responses={
             200: TimeSlotGenerateResponseSerializer,
@@ -465,37 +346,127 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
         return Response(response_data)
     
     @extend_schema(
-        summary="Check availability",
-        description="Check available time slots for a shop on a specific date",
-        request=AvailabilityCheckSerializer,
-        responses={200: AvailabilityResponseSerializer},
+        summary="Dynamic availability calculator",
+        description="""
+        Calculate available time slots dynamically based on:
+        - Shop schedule (open/close times for the day)
+        - Service duration
+        - Staff availability (booking conflicts)
+        
+        This endpoint computes slots on-the-fly without requiring pre-generated TimeSlot records.
+        
+        **Key Features:**
+        - Handles staff concurrency (if Staff A is busy, Staff B may still be available)
+        - Respects service duration (a 45-min service blocks appropriate time ranges)
+        - Filters past slots with configurable buffer
+        
+        **Example Use Cases:**
+        - Customer booking flow: Get available slots for a specific service on a date
+        - Staff scheduling: See which time slots have no available staff
+        """,
+        request=DynamicAvailabilityRequestSerializer,
+        responses={
+            200: DynamicAvailabilityResponseSerializer,
+            400: OpenApiResponse(description="Bad Request - Invalid service_id or date"),
+            404: OpenApiResponse(description="Service not found")
+        },
         tags=['Schedules - Public']
     )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
-    def check_availability(self, request):
-        """Check available time slots"""
-        serializer = AvailabilityCheckSerializer(data=request.data)
+    def dynamic_availability(self, request):
+        """
+        Calculate available time slots dynamically.
+        
+        This replaces the need for pre-generated TimeSlot records by computing
+        availability on-the-fly based on shop hours, service duration, and
+        existing bookings.
+        """
+        serializer = DynamicAvailabilityRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        shop_id = serializer.validated_data['shop_id']
-        date = serializer.validated_data['date']
-        service_id = serializer.validated_data.get('service_id')
+        service_id = serializer.validated_data['service_id']
+        target_date = serializer.validated_data['date']
+        # Buffer is optional - if not provided, uses service.buffer_minutes
+        buffer_minutes_override = serializer.validated_data.get('buffer_minutes_override')
         
-        # Get available slots
-        slots = TimeSlot.objects.filter(
-            schedule__shop_id=shop_id,
-            start_datetime__date=date,
-            start_datetime__gte=timezone.now(),
-            status='available'
-        ).order_by('start_datetime')
-        
-        response_data = {
-            'date': date,
-            'available_slots': TimeSlotSerializer(slots, many=True).data,
-            'total_slots': slots.count()
-        }
-        
-        return Response(response_data)
+        try:
+            # Initialize the availability service
+            # Slot interval automatically uses service duration
+            availability_service = AvailabilityService(
+                service_id=service_id,
+                target_date=target_date,
+                buffer_minutes=buffer_minutes_override
+            )
+            
+            # Get available slots
+            available_slots = availability_service.get_available_slots()
+            
+            # Get eligible staff count
+            eligible_staff = availability_service._get_eligible_staff()
+            
+            # Build a map of staff details for quick lookup
+            from apps.staff.models import StaffMember, StaffService
+            staff_ids = set()
+            for slot in available_slots:
+                staff_ids.update(slot.available_staff_ids)
+            
+            staff_members = {
+                str(s.id): s for s in StaffMember.objects.filter(id__in=staff_ids)
+            }
+            
+            # Get primary staff for this service
+            primary_staff_ids = set(
+                StaffService.objects.filter(
+                    service_id=service_id,
+                    is_primary=True
+                ).values_list('staff_member_id', flat=True)
+            )
+            
+            # Build available slots with full staff details
+            slots_data = []
+            for slot in available_slots:
+                staff_list = []
+                for staff_id in slot.available_staff_ids:
+                    staff = staff_members.get(str(staff_id))
+                    if staff:
+                        staff_list.append({
+                            'id': staff_id,
+                            'name': staff.name,
+                            'email': staff.email or None,
+                            'phone': staff.phone or None,
+                            'profile_image_url': staff.profile_image_url or None,
+                            'is_primary': staff_id in primary_staff_ids
+                        })
+                
+                slots_data.append({
+                    'start_time': slot.start_time,
+                    'end_time': slot.end_time,
+                    'available_staff': staff_list,
+                    'available_staff_count': len(staff_list)
+                })
+            
+            # Build response
+            response_data = {
+                'shop_id': availability_service.shop.id,
+                'shop_name': availability_service.shop.name,
+                'service_id': availability_service.service.id,
+                'service_name': availability_service.service.name,
+                'service_duration_minutes': availability_service.service_duration,
+                'date': target_date,
+                'is_shop_open': availability_service.is_shop_open(),
+                'shop_hours': availability_service.get_shop_hours(),
+                'available_slots': slots_data,
+                'total_available_slots': len(available_slots),
+                'eligible_staff_count': eligible_staff.count()
+            }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     @extend_schema(
         summary="Block time slot",
@@ -547,9 +518,9 @@ class TimeSlotViewSet(mixins.UpdateModelMixin, viewsets.ReadOnlyModelViewSet):
 
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['list', 'retrieve', 'check_availability']:
+        if self.action in ['list', 'dynamic_availability']:
             return [AllowAny()]
-        elif self.action in ['update', 'partial_update', 'assign_staff', 'block', 'unblock']:
+        elif self.action in ['block', 'unblock']:
             return [IsClient(), IsShopOwner()]
         elif self.action == 'generate':
             return [IsClient()]

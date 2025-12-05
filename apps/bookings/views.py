@@ -1,7 +1,7 @@
 """
 Booking views - COMPLETE AND FIXED
 """
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -15,16 +15,21 @@ from apps.core.permissions import IsCustomer, IsClient, IsBookingOwner
 from .models import Booking
 from .serializers import (
     BookingSerializer,
-    BookingCreateSerializer,
     BookingListSerializer,
-    BookingUpdateStatusSerializer,
-    BookingRescheduleSerializer,
-    BookingStatsSerializer
+    BookingStatsSerializer,
+    DynamicBookingCreateSerializer
 )
 
 
-class BookingViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing bookings"""
+class BookingViewSet(viewsets.GenericViewSet, 
+                     mixins.ListModelMixin,
+                     mixins.RetrieveModelMixin):
+    """
+    ViewSet for managing bookings.
+    
+    Create bookings with dynamic_book (recommended).
+    Use cancel instead of destroy for proper booking lifecycle.
+    """
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['status', 'shop', 'service']
@@ -32,14 +37,8 @@ class BookingViewSet(viewsets.ModelViewSet):
     ordering = ['-booking_datetime']
     
     def get_serializer_class(self):
-        if self.action == 'create':
-            return BookingCreateSerializer
-        elif self.action == 'list' or 'bookings' in self.action:
+        if self.action == 'list' or 'bookings' in self.action:
             return BookingListSerializer
-        elif self.action == 'update_status':
-            return BookingUpdateStatusSerializer
-        elif self.action == 'reschedule':
-            return BookingRescheduleSerializer
         elif self.action == 'stats':
             return BookingStatsSerializer
         return BookingSerializer
@@ -97,205 +96,6 @@ class BookingViewSet(viewsets.ModelViewSet):
         return super().retrieve(request, *args, **kwargs)
     
     @extend_schema(
-        summary="Create booking",
-        description="Create a new booking (customers only)",
-        request=BookingCreateSerializer,
-        examples=[
-            OpenApiExample(
-                'Booking Creation Example',
-                value={
-                    'service_id': 'd241ec69-f739-4040-94a0-b46286742dbe',
-                    'time_slot_id': '3108e310-9780-448f-809d-d014e7d716b8',
-                    'staff_member_id': 'b9743cc7-1364-4a32-a3b7-730a02365f00',
-                    'notes': 'Please call me when you arrive'
-                },
-                request_only=True
-            )
-        ],
-        responses={
-            201: BookingSerializer,
-            400: OpenApiResponse(description="Bad Request - Invalid data or time slot not available"),
-            403: OpenApiResponse(description="Forbidden - Only customers can create bookings")
-        },
-        tags=['Bookings - Customer']
-    )
-    def create(self, request, *args, **kwargs):
-        if request.user.role != 'customer':
-            return Response(
-                {'error': 'Only customers can create bookings'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Get or create customer profile
-        from apps.customers.models import Customer
-        customer, created = Customer.objects.get_or_create(user=request.user)
-        
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        # Get validated data
-        from apps.services.models import Service
-        from apps.schedules.models import TimeSlot
-        from apps.staff.models import StaffMember, StaffService
-        
-        service = Service.objects.get(id=serializer.validated_data['service_id'])
-        time_slot = TimeSlot.objects.get(id=serializer.validated_data['time_slot_id'])
-        
-        # Handle staff member assignment with availability checking
-        staff_member = None
-        staff_member_id = serializer.validated_data.get('staff_member_id')
-        
-        if staff_member_id:
-            # User selected a specific staff member - verify availability
-            try:
-                staff_member = StaffMember.objects.get(
-                    id=staff_member_id,
-                    shop=service.shop,
-                    is_active=True
-                )
-                
-                # Check if staff member is already booked for this time slot
-                conflicting_booking = Booking.objects.filter(
-                    staff_member=staff_member,
-                    time_slot__start_datetime__lt=time_slot.end_datetime,
-                    time_slot__end_datetime__gt=time_slot.start_datetime,
-                    status__in=['pending', 'confirmed']
-                ).exists()
-                
-                if conflicting_booking:
-                    return Response(
-                        {'error': f'{staff_member.name} is already booked for this time slot'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
-                # Verify staff can provide this service (if they have service assignments)
-                staff_services = staff_member.services.all()
-                if staff_services.exists() and not staff_services.filter(id=service.id).exists():
-                    return Response(
-                        {'error': f'{staff_member.name} cannot provide this service'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                    
-            except StaffMember.DoesNotExist:
-                return Response(
-                    {'error': 'Selected staff member not found or not available'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-        else:
-            # Auto-assign staff member with smart prioritization
-            # Get all active staff for this shop
-            all_staff = StaffMember.objects.filter(
-                shop=service.shop,
-                is_active=True
-            )
-            
-            # Exclude staff who are already booked for this time slot
-            available_staff_ids = []
-            for staff in all_staff:
-                conflicting_booking = Booking.objects.filter(
-                    staff_member=staff,
-                    time_slot__start_datetime__lt=time_slot.end_datetime,
-                    time_slot__end_datetime__gt=time_slot.start_datetime,
-                    status__in=['pending', 'confirmed']
-                ).exists()
-                
-                if not conflicting_booking:
-                    available_staff_ids.append(staff.id)
-            
-            available_staff = StaffMember.objects.filter(id__in=available_staff_ids)
-            
-            # Priority 1: Free staff (no specific service assignments) who are available
-            free_staff = available_staff.filter(services__isnull=True).first()
-            
-            if free_staff:
-                staff_member = free_staff
-            else:
-                # Priority 2: Staff marked as primary for this service
-                primary_staff = StaffService.objects.filter(
-                    service=service,
-                    is_primary=True,
-                    staff_member__in=available_staff
-                ).first()
-                
-                if primary_staff:
-                    staff_member = primary_staff.staff_member
-                else:
-                    # Priority 3: Any available staff who can provide this service
-                    service_staff = available_staff.filter(services=service).first()
-                    
-                    if service_staff:
-                        staff_member = service_staff
-                    else:
-                        # Priority 4: Check if time slot has pre-assigned staff
-                        if time_slot.staff_member and time_slot.staff_member.id in available_staff_ids:
-                            staff_member = time_slot.staff_member
-        
-        # Create booking
-        booking = Booking.objects.create(
-            customer=customer,
-            shop=service.shop,
-            service=service,
-            time_slot=time_slot,
-            staff_member=staff_member,
-            booking_datetime=time_slot.start_datetime,
-            total_price=service.price,
-            notes=serializer.validated_data.get('notes', ''),
-            status='pending'
-        )
-        
-        # Mark time slot as booked
-        time_slot.status = 'booked'
-        time_slot.save(update_fields=['status'])
-        
-        return Response(
-            BookingSerializer(booking).data,
-            status=status.HTTP_201_CREATED
-        )
-    
-    @extend_schema(
-        summary="Update booking",
-        description="Update booking details (salon owners only)",
-        request=BookingCreateSerializer,
-        responses={
-            200: BookingSerializer,
-            400: OpenApiResponse(description="Bad Request"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Booking not found")
-        },
-        tags=['Bookings - Client']
-    )
-    def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Partial update booking",
-        description="Partially update booking details (salon owners only)",
-        request=BookingCreateSerializer,
-        responses={
-            200: BookingSerializer,
-            400: OpenApiResponse(description="Bad Request"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Booking not found")
-        },
-        tags=['Bookings - Client']
-    )
-    def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, *args, **kwargs)
-    
-    @extend_schema(
-        summary="Delete booking",
-        description="Delete a booking (salon owners only)",
-        responses={
-            204: OpenApiResponse(description="Booking deleted successfully"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Booking not found")
-        },
-        tags=['Bookings - Client']
-    )
-    def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
-    
-    @extend_schema(
         summary="My bookings",
         description="Get current customer's booking history",
         responses={200: BookingListSerializer(many=True)},
@@ -313,6 +113,156 @@ class BookingViewSet(viewsets.ModelViewSet):
         
         serializer = BookingListSerializer(bookings, many=True)
         return Response(serializer.data)
+    
+    @extend_schema(
+        summary="Dynamic booking (no TimeSlot required)",
+        description="""
+        Create a booking without requiring a pre-created TimeSlot.
+        
+        Uses dynamic availability to validate the slot and create the booking.
+        This is the recommended endpoint for new booking implementations.
+        
+        The system will:
+        1. Validate the slot is within shop hours
+        2. Check staff availability for the requested time
+        3. Auto-assign or use specified staff member
+        4. Create the booking directly
+        """,
+        request=DynamicBookingCreateSerializer,
+        examples=[
+            OpenApiExample(
+                'Dynamic Booking Example',
+                value={
+                    'service_id': 'd241ec69-f739-4040-94a0-b46286742dbe',
+                    'date': '2024-12-10',
+                    'start_time': '10:00',
+                    'staff_member_id': 'b9743cc7-1364-4a32-a3b7-730a02365f00',
+                    'notes': 'Please call me when you arrive'
+                },
+                request_only=True
+            )
+        ],
+        responses={
+            201: BookingSerializer,
+            400: OpenApiResponse(description="Bad Request - Slot not available or invalid data"),
+            403: OpenApiResponse(description="Forbidden - Only customers can create bookings")
+        },
+        tags=['Bookings - Customer']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[IsCustomer])
+    def dynamic_book(self, request):
+        """
+        Create a booking using dynamic availability.
+        No pre-created TimeSlot required.
+        """
+        if request.user.role != 'customer':
+            return Response(
+                {'error': 'Only customers can create bookings'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get or create customer profile
+        from apps.customers.models import Customer
+        customer, created = Customer.objects.get_or_create(user=request.user)
+        
+        serializer = DynamicBookingCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        service = serializer.validated_data['service']
+        booking_datetime = serializer.validated_data['booking_datetime']
+        target_date = serializer.validated_data['date']
+        staff_member_id = serializer.validated_data.get('staff_member_id')
+        
+        # Use AvailabilityService to check if this slot is actually available
+        from apps.schedules.services.availability import AvailabilityService
+        from apps.staff.models import StaffMember, StaffService
+        from datetime import timedelta
+        
+        availability_service = AvailabilityService(
+            service_id=service.id,
+            target_date=target_date,
+            buffer_minutes=15
+        )
+        
+        # Check if shop is open
+        if not availability_service.is_shop_open():
+            return Response(
+                {'error': 'Shop is closed on this date'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get available slots and check if requested time is valid
+        available_slots = availability_service.get_available_slots()
+        
+        # Find the slot that matches the requested time
+        matching_slot = None
+        for slot in available_slots:
+            if slot.start_time == booking_datetime:
+                matching_slot = slot
+                break
+        
+        if not matching_slot:
+            return Response(
+                {'error': 'This time slot is not available. Please check available slots first.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Handle staff member assignment
+        staff_member = None
+        
+        if staff_member_id:
+            # User selected specific staff - verify they're in available_staff_ids
+            if staff_member_id not in matching_slot.available_staff_ids:
+                return Response(
+                    {'error': 'Selected staff member is not available at this time'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            staff_member = StaffMember.objects.get(id=staff_member_id)
+        else:
+            # Auto-assign from available staff
+            if matching_slot.available_staff_ids:
+                # Priority: free staff > primary > any
+                available_staff = StaffMember.objects.filter(
+                    id__in=matching_slot.available_staff_ids
+                )
+                
+                # Try free staff first
+                free_staff = available_staff.filter(services__isnull=True).first()
+                if free_staff:
+                    staff_member = free_staff
+                else:
+                    # Try primary staff for this service
+                    primary = StaffService.objects.filter(
+                        service=service,
+                        is_primary=True,
+                        staff_member__in=available_staff
+                    ).first()
+                    if primary:
+                        staff_member = primary.staff_member
+                    else:
+                        # Any available staff
+                        staff_member = available_staff.first()
+        
+        # Calculate end time
+        booking_end = booking_datetime + timedelta(minutes=service.duration_minutes)
+        
+        # Create booking (no TimeSlot needed)
+        booking = Booking.objects.create(
+            customer=customer,
+            shop=service.shop,
+            service=service,
+            time_slot=None,  # Dynamic booking - no TimeSlot
+            staff_member=staff_member,
+            booking_datetime=booking_datetime,
+            total_price=service.price,
+            notes=serializer.validated_data.get('notes', ''),
+            status='pending'
+        )
+        
+        return Response(
+            BookingSerializer(booking).data,
+            status=status.HTTP_201_CREATED
+        )
     
     @extend_schema(
         summary="Shop bookings",
@@ -389,7 +339,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Cancel booking",
         description="Cancel a booking",
-        request=BookingUpdateStatusSerializer,
+        request=None,
         responses={
             200: BookingSerializer,
             400: OpenApiResponse(description="Bad Request - Cannot cancel this booking"),
@@ -499,66 +449,6 @@ class BookingViewSet(viewsets.ModelViewSet):
         return Response(BookingSerializer(booking).data)
     
     @extend_schema(
-        summary="Reschedule booking",
-        description="Reschedule a booking to a new time slot",
-        request=BookingRescheduleSerializer,
-        examples=[
-            OpenApiExample(
-                'Reschedule Example',
-                value={
-                    'new_time_slot_id': '3108e310-9780-448f-809d-d014e7d716b8'
-                },
-                request_only=True
-            )
-        ],
-        responses={
-            200: BookingSerializer,
-            400: OpenApiResponse(description="Bad Request"),
-            403: OpenApiResponse(description="Forbidden"),
-            404: OpenApiResponse(description="Booking not found")
-        },
-        tags=['Bookings - Customer']
-    )
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsBookingOwner])
-    def reschedule(self, request, pk=None):
-        """Reschedule a booking"""
-        booking = self.get_object()
-        
-        if booking.status not in ['pending', 'confirmed']:
-            return Response(
-                {'error': 'Only pending or confirmed bookings can be rescheduled'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        serializer = BookingRescheduleSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        from apps.schedules.models import TimeSlot
-        new_time_slot = TimeSlot.objects.get(id=serializer.validated_data['new_time_slot_id'])
-        
-        if new_time_slot.status != 'available':
-            return Response(
-                {'error': 'Selected time slot is not available'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Free old time slot
-        if booking.time_slot:
-            booking.time_slot.status = 'available'
-            booking.time_slot.save(update_fields=['status'])
-        
-        # Update booking
-        booking.time_slot = new_time_slot
-        booking.booking_datetime = new_time_slot.start_datetime
-        booking.save(update_fields=['time_slot', 'booking_datetime'])
-        
-        # Mark new time slot as booked
-        new_time_slot.status = 'booked'
-        new_time_slot.save(update_fields=['status'])
-        
-        return Response(BookingSerializer(booking).data)
-    
-    @extend_schema(
         summary="Booking statistics",
         description="Get booking statistics for a shop (salon owners only)",
         responses={200: BookingStatsSerializer},
@@ -599,12 +489,10 @@ class BookingViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['create', 'my_bookings']:
+        if self.action in ['my_bookings', 'dynamic_book']:
             return [IsCustomer()]
         elif self.action in ['shop_bookings', 'today_bookings', 'upcoming_bookings', 'confirm', 'complete', 'no_show', 'stats']:
             return [IsClient()]
-        elif self.action in ['cancel', 'reschedule']:
+        elif self.action == 'cancel':
             return [IsAuthenticated(), IsBookingOwner()]
-        elif self.action in ['update', 'partial_update', 'destroy']:
-            return [IsClient(), IsBookingOwner()]
         return super().get_permissions()
