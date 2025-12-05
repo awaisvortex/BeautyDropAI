@@ -126,11 +126,19 @@ class AvailabilityService:
     
     @property
     def buffer_minutes(self) -> int:
-        """Get buffer minutes - uses service setting or override."""
+        """
+        Get buffer minutes.
+        
+        Priority:
+        1. Override passed in request
+        2. Service's buffer_minutes if set (> 0)
+        3. Default: 0 (no buffer)
+        """
         if self._buffer_minutes_override is not None:
             return self._buffer_minutes_override
-        # Use service-specific buffer_minutes (with fallback for old data)
-        return getattr(self.service, 'buffer_minutes', 15)
+        # Use service-specific buffer_minutes if set, otherwise 0
+        service_buffer = getattr(self.service, 'buffer_minutes', 0) or 0
+        return service_buffer
     
     def get_available_slots(self) -> List[AvailableSlot]:
         """
@@ -324,8 +332,9 @@ class AvailabilityService:
         """
         available_slots = []
         
-        # Determine slot interval (use override or shop default)
-        slot_interval = self.slot_interval_override or schedule.slot_duration_minutes
+        # Determine slot interval - use service duration (not shop slot_duration!)
+        # This ensures slots don't overlap for longer services
+        slot_interval = self.slot_interval_override or self.service_duration
         
         # Create datetime objects for shop hours on target date
         shop_open = datetime.combine(self.target_date, schedule.start_time)
