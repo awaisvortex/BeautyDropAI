@@ -847,6 +847,47 @@ GOOGLE_CALENDAR_CLIENT_SECRET=your-client-secret
 
 ---
 
+## CI/CD & Deployment
+
+### Automated Deployment via GitHub Actions
+
+This project includes a complete CI/CD pipeline using GitHub Actions that automatically:
+- Runs tests and linting on every PR
+- Builds Docker image on `main` branch pushes
+- Pushes to Google Artifact Registry
+- Deploys to Google Cloud Run
+
+**Pipeline Status**: [![CI/CD](https://github.com/awaisvortex/BeautyDropAI/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/awaisvortex/BeautyDropAI/actions/workflows/ci-cd.yml)
+
+**Current Deployment**:
+- Service: https://beautydrop-api-rbjcchnovq-ue.a.run.app
+- Region: us-east1
+- Platform: Google Cloud Run
+
+### Setup CI/CD
+
+**Quick Setup** (5 minutes):
+```bash
+./scripts/setup-cicd.sh
+```
+
+Then add these GitHub secrets:
+1. `GCP_SERVICE_ACCOUNT_KEY` - Service account JSON key
+2. `CLOUD_RUN_ENV_YAML` - Environment variables in YAML format
+
+📚 **Detailed Guide**: See [`CI_CD_QUICKSTART.md`](CI_CD_QUICKSTART.md) and [`.github/workflows/README.md`](.github/workflows/README.md)
+
+### Manual Deployment
+
+If CI/CD is blocked, deploy manually:
+```bash
+./deploy-latest.sh
+```
+
+See [`DEPLOYMENT.md`](DEPLOYMENT.md) for complete manual deployment guide.
+
+---
+
 ## Technology Stack Summary
 
 | Component      | Technology              |
@@ -859,7 +900,7 @@ GOOGLE_CALENDAR_CLIENT_SECRET=your-client-secret
 | Task Queue     | Celery + Redis          |
 | API            | Django REST Framework   |
 | Testing        | Pytest                  |
-| Deployment     | Docker + Docker Compose |
+| Deployment     | Docker + Google Cloud Run |
 
 ---
 
