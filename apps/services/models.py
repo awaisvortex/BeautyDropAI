@@ -29,6 +29,12 @@ class Service(BaseModel):
     # Duration
     duration_minutes = models.IntegerField(validators=[validate_duration])
     
+    # Buffer time before next booking can be made (in minutes)
+    buffer_minutes = models.IntegerField(
+        default=15,
+        help_text='Minimum time buffer between now and earliest bookable slot'
+    )
+    
     # Category
     category = models.CharField(max_length=100, blank=True)
     

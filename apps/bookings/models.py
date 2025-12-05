@@ -30,8 +30,11 @@ class Booking(BaseModel):
     
     time_slot = models.OneToOneField(
         'schedules.TimeSlot',
-        on_delete=models.PROTECT,
-        related_name='booking'
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='booking',
+        help_text='Optional: Only set for bookings created from pre-generated TimeSlots'
     )
     
     staff_member = models.ForeignKey(

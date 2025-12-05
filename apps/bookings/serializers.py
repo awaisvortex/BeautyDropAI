@@ -160,3 +160,94 @@ class BookingStatsSerializer(serializers.Serializer):
     completed_bookings = serializers.IntegerField()
     cancelled_bookings = serializers.IntegerField()
     total_revenue = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+
+# ============================================
+# Dynamic Booking Serializers (No TimeSlot Required)
+# ============================================
+
+class DynamicBookingCreateSerializer(serializers.Serializer):
+    """
+    Input serializer for creating bookings without pre-created TimeSlots.
+    
+    Uses dynamic availability to validate and create bookings directly
+    from a service_id, date, and start_time.
+    """
+    service_id = serializers.UUIDField(
+        help_text="UUID of the service to book"
+    )
+    date = serializers.DateField(
+        help_text="Date of the booking (YYYY-MM-DD)"
+    )
+    start_time = serializers.TimeField(
+        help_text="Start time for the booking (HH:MM)"
+    )
+    staff_member_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional: Select a specific staff member"
+    )
+    notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text="Optional notes for the booking"
+    )
+    
+    def validate_date(self, value):
+        """Ensure date is not in the past."""
+        if value < timezone.now().date():
+            raise serializers.ValidationError("Date cannot be in the past")
+        return value
+    
+    def validate_service_id(self, value):
+        """Validate service exists and is active."""
+        from apps.services.models import Service
+        try:
+            Service.objects.get(id=value, is_active=True)
+        except Service.DoesNotExist:
+            raise serializers.ValidationError("Service not found or not active")
+        return value
+    
+    def validate(self, data):
+        from apps.services.models import Service
+        from apps.staff.models import StaffMember
+        from datetime import datetime, timedelta
+        
+        service = Service.objects.get(id=data['service_id'])
+        
+        # Create datetime from date and time
+        booking_datetime = datetime.combine(data['date'], data['start_time'])
+        if timezone.is_naive(booking_datetime):
+            booking_datetime = timezone.make_aware(booking_datetime)
+        
+        # Check if booking time is in the past
+        buffer_time = timezone.now() + timedelta(minutes=15)
+        if booking_datetime < buffer_time:
+            raise serializers.ValidationError(
+                "Booking time must be at least 15 minutes from now"
+            )
+        
+        # Validate staff member if provided
+        if data.get('staff_member_id'):
+            try:
+                staff_member = StaffMember.objects.get(
+                    id=data['staff_member_id'],
+                    shop=service.shop,
+                    is_active=True
+                )
+                # Verify staff can provide this service (if they have service assignments)
+                staff_services = staff_member.services.all()
+                if staff_services.exists() and not staff_services.filter(id=service.id).exists():
+                    raise serializers.ValidationError(
+                        "Selected staff member cannot provide this service"
+                    )
+            except StaffMember.DoesNotExist:
+                raise serializers.ValidationError(
+                    "Staff member not found or not available at this shop"
+                )
+        
+        data['booking_datetime'] = booking_datetime
+        data['service'] = service
+        return data
+
