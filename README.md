@@ -849,9 +849,24 @@ GOOGLE_CALENDAR_CLIENT_SECRET=your-client-secret
 
 ## CI/CD & Deployment
 
-### Automated Deployment via GitHub Actions
+### 🚀 Current Status: LIVE & WORKING
 
-This project includes a complete CI/CD pipeline using GitHub Actions that automatically:
+**Service URL**: https://beautydrop-api-497422674710.us-east1.run.app  
+**Platform**: Google Cloud Run (us-east1)  
+**Status**: ✅ All features deployed and operational
+
+📊 **Full Status**: See [`DEPLOYMENT_STATUS.md`](DEPLOYMENT_STATUS.md) for complete deployment info
+
+### Deployment Options
+
+**Option 1: Manual Deployment** (✅ Ready to use now)
+```bash
+./deploy-latest.sh
+```
+
+**Option 2: Automated CI/CD** (⏳ Requires admin setup)
+
+This project includes a GitHub Actions CI/CD pipeline that automatically:
 - Runs tests and linting on every PR
 - Builds Docker image on `main` branch pushes
 - Pushes to Google Artifact Registry
@@ -859,32 +874,34 @@ This project includes a complete CI/CD pipeline using GitHub Actions that automa
 
 **Pipeline Status**: [![CI/CD](https://github.com/awaisvortex/BeautyDropAI/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/awaisvortex/BeautyDropAI/actions/workflows/ci-cd.yml)
 
-**Current Deployment**:
-- Service: https://beautydrop-api-rbjcchnovq-ue.a.run.app
-- Region: us-east1
-- Platform: Google Cloud Run
+### Setup CI/CD (Optional - Requires Admin)
 
-### Setup CI/CD
-
-**Quick Setup** (5 minutes):
+CI/CD requires admin permissions. If you have them, run:
 ```bash
-./scripts/setup-cicd.sh
+./scripts/setup-workload-identity.sh  # Recommended (no keys needed)
+# OR
+./scripts/setup-cicd.sh               # Fallback (uses service account keys)
 ```
 
-Then add these GitHub secrets:
-1. `GCP_SERVICE_ACCOUNT_KEY` - Service account JSON key
-2. `CLOUD_RUN_ENV_YAML` - Environment variables in YAML format
+Then add GitHub secrets as shown in the script output.
 
-📚 **Detailed Guide**: See [`CI_CD_QUICKSTART.md`](CI_CD_QUICKSTART.md) and [`.github/workflows/README.md`](.github/workflows/README.md)
+⚠️ **Permission Issues?** See [`CI_CD_SETUP_NEEDED.md`](CI_CD_SETUP_NEEDED.md)
 
-### Manual Deployment
+📚 **Detailed Guides**: 
+- [`CI_CD_QUICKSTART.md`](CI_CD_QUICKSTART.md) - Quick reference
+- [`.github/workflows/README.md`](.github/workflows/README.md) - Complete setup
+- [`DEPLOYMENT_STATUS.md`](DEPLOYMENT_STATUS.md) - Current status
 
-If CI/CD is blocked, deploy manually:
+### Manual Deployment (No Admin Required)
+
+Deploy anytime using:
 ```bash
 ./deploy-latest.sh
 ```
 
-See [`DEPLOYMENT.md`](DEPLOYMENT.md) for complete manual deployment guide.
+This works right now without any additional setup.
+
+📚 **Manual Guide**: [`DEPLOYMENT.md`](DEPLOYMENT.md)
 
 ---
 
