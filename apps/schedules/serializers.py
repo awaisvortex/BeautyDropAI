@@ -280,7 +280,7 @@ class AvailableStaffSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Staff member name")
     email = serializers.EmailField(required=False, allow_null=True, help_text="Staff member email")
     phone = serializers.CharField(required=False, allow_null=True, help_text="Staff member phone")
-    profile_image = serializers.URLField(required=False, allow_null=True, help_text="Staff profile image URL")
+    profile_image_url = serializers.URLField(required=False, allow_null=True, allow_blank=True, help_text="Staff profile image URL")
     is_primary = serializers.BooleanField(required=False, help_text="Is primary staff for this service")
 
 

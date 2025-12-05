@@ -432,9 +432,9 @@ class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
                         staff_list.append({
                             'id': staff_id,
                             'name': staff.name,
-                            'email': staff.email,
-                            'phone': staff.phone,
-                            'profile_image': staff.profile_image.url if staff.profile_image else None,
+                            'email': staff.email or None,
+                            'phone': staff.phone or None,
+                            'profile_image_url': staff.profile_image_url or None,
                             'is_primary': staff_id in primary_staff_ids
                         })
                 

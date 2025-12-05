@@ -193,11 +193,9 @@ class AvailabilityService:
         """
         Find all active staff members who can perform this service.
         
-        Staff eligibility:
-        - Must be active
-        - Must belong to the shop
-        - Either: explicitly assigned to this service via StaffService
-        - Or: has no specific service assignments (free staff)
+        Staff eligibility logic:
+        - If service HAS assigned staff → Only those staff members
+        - If service has NO assigned staff → ALL active shop staff
         
         Returns:
             QuerySet of eligible StaffMember objects
@@ -205,15 +203,25 @@ class AvailabilityService:
         if self._eligible_staff is not None:
             return self._eligible_staff
         
-        # Get staff who are:
-        # 1. Explicitly assigned to this service, OR
-        # 2. "Free" staff (no service assignments at all)
-        self._eligible_staff = StaffMember.objects.filter(
-            shop=self.shop,
-            is_active=True
-        ).filter(
-            Q(services__id=self.service_id) | Q(services__isnull=True)
-        ).distinct()
+        # Check if this service has any staff assigned
+        from apps.staff.models import StaffService
+        has_assigned_staff = StaffService.objects.filter(
+            service_id=self.service_id
+        ).exists()
+        
+        if has_assigned_staff:
+            # Service has assigned staff - only show those staff
+            self._eligible_staff = StaffMember.objects.filter(
+                shop=self.shop,
+                is_active=True,
+                services__id=self.service_id
+            ).distinct()
+        else:
+            # Service has no assigned staff - show ALL shop staff
+            self._eligible_staff = StaffMember.objects.filter(
+                shop=self.shop,
+                is_active=True
+            )
         
         return self._eligible_staff
     
