@@ -855,53 +855,53 @@ GOOGLE_CALENDAR_CLIENT_SECRET=your-client-secret
 **Platform**: Google Cloud Run (us-east1)  
 **Status**: ✅ All features deployed and operational
 
-📊 **Full Status**: See [`DEPLOYMENT_STATUS.md`](DEPLOYMENT_STATUS.md) for complete deployment info
+### Manual Deployment
 
-### Deployment Options
+**Simple One-Command Deployment:**
 
-**Option 1: Manual Deployment** (✅ Ready to use now)
 ```bash
-./deploy-latest.sh
+./deploy.sh
 ```
 
-**Option 2: Automated CI/CD** (⏳ Requires admin setup)
+**What it does:**
+1. ✅ Pulls latest code from `main` branch
+2. ✅ Builds Docker image
+3. ✅ Pushes to Google Artifact Registry
+4. ✅ Deploys to Cloud Run
+5. ✅ Tests the deployed API
 
-This project includes a GitHub Actions CI/CD pipeline that automatically:
-- Runs tests and linting on every PR
-- Builds Docker image on `main` branch pushes
-- Pushes to Google Artifact Registry
-- Deploys to Google Cloud Run
+**Time:** ~3-5 minutes
 
-**Pipeline Status**: [![CI/CD](https://github.com/awaisvortex/BeautyDropAI/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/awaisvortex/BeautyDropAI/actions/workflows/ci-cd.yml)
+### Manual Step-by-Step
 
-### Setup CI/CD (Optional - Requires Admin)
+If you prefer running commands manually:
 
-CI/CD requires admin permissions. If you have them, run:
 ```bash
-./scripts/setup-workload-identity.sh  # Recommended (no keys needed)
-# OR
-./scripts/setup-cicd.sh               # Fallback (uses service account keys)
+# 1. Pull latest code
+git checkout main
+git pull origin main
+
+# 2. Build Docker image
+docker build -t us-east1-docker.pkg.dev/beautydrop-dev/beautydrop-django/app:latest .
+
+# 3. Push to Artifact Registry
+CLOUDSDK_PYTHON=/usr/bin/python3 docker push us-east1-docker.pkg.dev/beautydrop-dev/beautydrop-django/app:latest
+
+# 4. Deploy to Cloud Run
+CLOUDSDK_PYTHON=/usr/bin/python3 gcloud run deploy beautydrop-api \
+  --image us-east1-docker.pkg.dev/beautydrop-dev/beautydrop-django/app:latest \
+  --region us-east1 \
+  --project beautydrop-dev
+
+# 5. Test the API
+curl https://beautydrop-api-497422674710.us-east1.run.app/api/v1/auth/health/
 ```
 
-Then add GitHub secrets as shown in the script output.
+### GitHub Actions CI/CD
 
-⚠️ **Permission Issues?** See [`CI_CD_SETUP_NEEDED.md`](CI_CD_SETUP_NEEDED.md)
+**Status**: ⚠️ In Progress - Workload Identity Federation authentication needs admin setup
 
-📚 **Detailed Guides**: 
-- [`CI_CD_QUICKSTART.md`](CI_CD_QUICKSTART.md) - Quick reference
-- [`.github/workflows/README.md`](.github/workflows/README.md) - Complete setup
-- [`DEPLOYMENT_STATUS.md`](DEPLOYMENT_STATUS.md) - Current status
-
-### Manual Deployment (No Admin Required)
-
-Deploy anytime using:
-```bash
-./deploy-latest.sh
-```
-
-This works right now without any additional setup.
-
-📚 **Manual Guide**: [`DEPLOYMENT.md`](DEPLOYMENT.md)
+The automated CI/CD pipeline is configured but requires additional IAM permissions. Use manual deployment for now.
 
 ---
 
