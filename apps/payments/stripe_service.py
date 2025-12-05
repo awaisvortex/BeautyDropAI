@@ -197,6 +197,129 @@ class StripeClient:
         except stripe.error.StripeError as e:
             logger.error(f"Error retrieving subscription: {str(e)}")
             return None
+    
+    @staticmethod
+    def create_billing_portal_session(customer_id: str, return_url: str) -> Optional[stripe.billing_portal.Session]:
+        """
+        Create a billing portal session for subscription management.
+        
+        Args:
+            customer_id: Stripe customer ID
+            return_url: URL to return to from portal
+            
+        Returns:
+            Stripe BillingPortal Session object or None
+        """
+        try:
+            session = stripe.billing_portal.Session.create(
+                customer=customer_id,
+                return_url=return_url,
+            )
+            return session
+        except stripe.error.StripeError as e:
+            logger.error(f"Error creating billing portal session: {str(e)}")
+            return None
+    
+    @staticmethod
+    def verify_webhook_signature(payload: bytes, signature: str, webhook_secret: str = None):
+        """
+        Verify Stripe webhook signature.
+        
+        Args:
+            payload: Raw request body (bytes)
+            signature: Stripe-Signature header value
+            webhook_secret: Webhook signing secret
+            
+        Returns:
+            Stripe Event object if valid
+            
+        Raises:
+            stripe.error.SignatureVerificationError: If signature is invalid
+        """
+        if not webhook_secret:
+            webhook_secret = settings.STRIPE_WEBHOOK_SECRET
+        
+        event = stripe.Webhook.construct_event(
+            payload, signature, webhook_secret
+        )
+        return event
+    
+    @staticmethod
+    def update_subscription(subscription_id: str, new_price_id: str) -> Optional[stripe.Subscription]:
+        """
+        Update subscription to new price/plan.
+        
+        Args:
+            subscription_id: Stripe subscription ID
+            new_price_id: New Stripe price ID
+            
+        Returns:
+            Updated Stripe Subscription object or None
+        """
+        try:
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            
+            stripe.Subscription.modify(
+                subscription_id,
+                items=[{
+                    'id': subscription['items']['data'][0].id,
+                    'price': new_price_id,
+                }],
+                proration_behavior='create_prorations',
+            )
+            return stripe.Subscription.retrieve(subscription_id)
+        except stripe.error.StripeError as e:
+            logger.error(f"Error updating subscription: {str(e)}")
+            return None
+    
+    @staticmethod
+    def cancel_at_period_end(subscription_id: str) -> Optional[stripe.Subscription]:
+        """
+        Set subscription to cancel at period end.
+        
+        Args:
+            subscription_id: Stripe subscription ID
+            
+        Returns:
+            Updated Stripe Subscription object or None
+        """
+        try:
+            subscription = stripe.Subscription.modify(
+                subscription_id,
+                cancel_at_period_end=True
+            )
+            return subscription
+        except stripe.error.StripeError as e:
+            logger.error(f"Error setting cancel_at_period_end: {str(e)}")
+            return None
+
+    @staticmethod
+    def get_price_details(price_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get price and product details from Stripe.
+        
+        Args:
+            price_id: Stripe price ID
+            
+        Returns:
+            Dictionary with price and product details or None
+        """
+        try:
+            price = stripe.Price.retrieve(price_id, expand=['product'])
+            
+            return {
+                'id': price.id,
+                'amount': price.unit_amount / 100.0,  # Convert cents to dollars
+                'currency': price.currency,
+                'interval': price.recurring.interval,
+                'product_id': price.product.id,
+                'product_name': price.product.name,
+                'product_description': price.product.description,
+                'active': price.active and price.product.active
+            }
+        except stripe.error.StripeError as e:
+            logger.error(f"Error retrieving price details: {str(e)}")
+            return None
 
 
 # Singleton instance

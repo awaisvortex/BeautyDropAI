@@ -6,7 +6,9 @@ from apps.core.utils.constants import USER_ROLES, USER_ROLE_CUSTOMER
 from .managers import UserManager
 
 
-class User(models.Model):
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+
+class User(AbstractBaseUser, PermissionsMixin):
     """
     Custom user model integrated with Clerk authentication.
     Uses clerk_user_id as the primary key.
@@ -30,6 +32,12 @@ class User(models.Model):
     is_active = models.BooleanField(default=True)
     email_verified = models.BooleanField(default=False)
     
+    # Admin fields
+    is_staff = models.BooleanField(default=False)
+    # is_superuser provided by PermissionsMixin
+    # last_login provided by AbstractBaseUser
+    # password provided by AbstractBaseUser
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     
@@ -52,15 +60,7 @@ class User(models.Model):
         """Return user's full name"""
         return f"{self.first_name} {self.last_name}".strip() or self.email
     
-    @property
-    def is_anonymous(self):
-        """Always return False for authenticated users"""
-        return False
-    
-    @property
-    def is_authenticated(self):
-        """Always return True for User instances"""
-        return True
+    # is_anonymous and is_authenticated provided by AbstractBaseUser
     
     def is_client(self):
         """Check if user is a client (salon owner)"""

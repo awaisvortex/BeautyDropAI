@@ -66,8 +66,9 @@ class ClerkAuthenticationMiddleware:
         self.get_response = get_response
     
     def __call__(self, request):
-        # Attach user to request
-        request.user = SimpleLazyObject(lambda: get_user_from_token(request))
+        # Attach user to request only if Authorization header is present
+        if request.META.get('HTTP_AUTHORIZATION'):
+            request.user = SimpleLazyObject(lambda: get_user_from_token(request))
         
         response = self.get_response(request)
         return response
