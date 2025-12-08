@@ -14,7 +14,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
-from drf_spectacular.utils import extend_schema, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 
@@ -90,6 +90,23 @@ class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
         summary="Import plan from Stripe",
         description="Create or update a subscription plan by importing details from Stripe using Price ID (admin only)",
         request=StripePriceImportSerializer,
+        examples=[
+            OpenApiExample(
+                'Import with Custom Name',
+                value={
+                    'stripe_price_id': 'price_1234567890',
+                    'name': 'Premium Plan'
+                },
+                request_only=True
+            ),
+            OpenApiExample(
+                'Import with Stripe Name',
+                value={
+                    'stripe_price_id': 'price_1234567890'
+                },
+                request_only=True
+            )
+        ],
         responses={
             200: SubscriptionPlanSerializer,
             400: OpenApiResponse(description="Bad Request or Invalid Price ID"),
@@ -104,6 +121,7 @@ class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
         serializer.is_valid(raise_exception=True)
         
         price_id = serializer.validated_data['stripe_price_id']
+        custom_name = serializer.validated_data.get('name')
         
         # Check if plan already exists
         if SubscriptionPlan.objects.filter(stripe_price_id=price_id).exists():
@@ -121,10 +139,13 @@ class SubscriptionPlanViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Use custom name if provided, otherwise use Stripe product name
+        plan_name = custom_name if custom_name else price_details['product_name']
+        
         # Create SubscriptionPlan
         plan = SubscriptionPlan.objects.create(
             stripe_price_id=price_details['id'],
-            name=price_details['product_name'],
+            name=plan_name,
             stripe_product_id=price_details['product_id'],
             amount=price_details['amount'],
             billing_period=price_details['interval'],
