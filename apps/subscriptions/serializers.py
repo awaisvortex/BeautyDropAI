@@ -16,6 +16,12 @@ class StripePriceImportSerializer(serializers.Serializer):
         max_length=255,
         help_text="Stripe Price ID (e.g. price_1234)"
     )
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional: Custom name for the plan (overrides Stripe product name)"
+    )
 
 
 class SubscriptionPlanSerializer(serializers.ModelSerializer):
