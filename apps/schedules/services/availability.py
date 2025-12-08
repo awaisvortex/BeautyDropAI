@@ -203,7 +203,7 @@ class AvailabilityService:
         
         Staff eligibility logic:
         - If service HAS assigned staff → Only those staff members
-        - If service has NO assigned staff → ALL active shop staff
+        - If service has NO assigned staff → EMPTY (no staff available)
         
         Returns:
             QuerySet of eligible StaffMember objects
@@ -225,11 +225,9 @@ class AvailabilityService:
                 services__id=self.service_id
             ).distinct()
         else:
-            # Service has no assigned staff - show ALL shop staff
-            self._eligible_staff = StaffMember.objects.filter(
-                shop=self.shop,
-                is_active=True
-            )
+            # Service has no assigned staff - return empty queryset
+            # This enforces that all services must have staff explicitly assigned
+            self._eligible_staff = StaffMember.objects.none()
         
         return self._eligible_staff
     
@@ -340,16 +338,26 @@ class AvailabilityService:
         shop_open = datetime.combine(self.target_date, schedule.start_time)
         shop_close = datetime.combine(self.target_date, schedule.end_time)
         
-        # Make timezone-aware if needed
+        # Localize to shop's timezone instead of default UTC
+        import pytz
+        try:
+            shop_tz = pytz.timezone(self.shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            # Fallback to UTC if timezone is invalid or not set
+            shop_tz = pytz.UTC
+        
+        # Localize naive datetimes to shop timezone
         if timezone.is_naive(shop_open):
-            shop_open = timezone.make_aware(shop_open)
+            shop_open = shop_tz.localize(shop_open)
         if timezone.is_naive(shop_close):
-            shop_close = timezone.make_aware(shop_close)
+            shop_close = shop_tz.localize(shop_close)
         
         # Calculate minimum allowed slot time (now + buffer) if target is today
+        # Use UTC for consistency with shop hours
         now = timezone.now()
+        now_date_utc = now.date()  # This is already UTC since Django's now() returns UTC
         min_slot_time = None
-        if self.target_date == now.date():
+        if self.target_date == now_date_utc:
             min_slot_time = now + timedelta(minutes=self.buffer_minutes)
         
         # Get list of eligible staff IDs for quick lookup

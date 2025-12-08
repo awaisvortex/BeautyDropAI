@@ -3,6 +3,7 @@ Shop serializers
 """
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
+import pytz
 from .models import Shop
 
 
@@ -22,7 +23,7 @@ class ShopSerializer(serializers.ModelSerializer):
             'id', 'client', 'client_name', 'name', 'description',
             'address', 'city', 'state', 'postal_code', 'country',
             'phone', 'email', 'website', 'logo_url', 'cover_image_url',
-            'is_active', 'services_count', 'created_at', 'updated_at'
+            'timezone', 'is_active', 'services_count', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'client', 'created_at', 'updated_at']
 
@@ -49,8 +50,18 @@ class ShopCreateUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'name', 'description', 'address', 'city', 'state',
             'postal_code', 'country', 'phone', 'email', 'website',
-            'logo_url', 'cover_image_url', 'is_active'
+            'logo_url', 'cover_image_url', 'timezone', 'is_active'
         ]
+    
+    def validate_timezone(self, value):
+        """Validate timezone is a valid pytz timezone."""
+        try:
+            pytz.timezone(value)
+        except pytz.exceptions.UnknownTimeZoneError:
+            raise serializers.ValidationError(
+                f"Invalid timezone: {value}. Must be a valid IANA timezone (e.g., 'Asia/Karachi', 'Europe/London')"
+            )
+        return value
 
 
 class ShopSearchSerializer(serializers.Serializer):

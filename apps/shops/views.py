@@ -5,7 +5,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiExample
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Q, Count
@@ -72,6 +72,34 @@ class ShopViewSet(viewsets.ModelViewSet):
     @extend_schema(
         summary="Get shop details",
         description="Retrieve detailed information about a specific shop including services",
+        examples=[
+            OpenApiExample(
+                'Shop Response Example',
+                value={
+                    'id': 'e188f3d1-921d-4261-9ea5-d6cfad62962a',
+                    'client': '5f8d7f6e-4d3c-2b1a-0e9f-8g7h6i5j4k3l',
+                    'client_name': 'Sidra\'s Business',
+                    'name': 'Sidra\'s Beauty Salon',
+                    'description': 'Premium beauty services',
+                    'address': '123 Main Street',
+                    'city': 'Karachi',
+                    'state': 'Sindh',
+                    'postal_code': '75500',
+                    'country': 'Pakistan',
+                    'phone': '+92-300-1234567',
+                    'email': 'info@sidrasbeauty.com',
+                    'website': 'https://sidrasbeauty.com',
+                    'logo_url': '',
+                    'cover_image_url': '',
+                    'timezone': 'Asia/Karachi',
+                    'is_active': True,
+                    'services_count': 5,
+                    'created_at': '2025-12-01T10:00:00Z',
+                    'updated_at': '2025-12-08T08:00:00Z'
+                },
+                response_only=True
+            )
+        ],
         responses={
             200: ShopDetailSerializer,
             404: OpenApiResponse(description="Shop not found")
@@ -85,6 +113,25 @@ class ShopViewSet(viewsets.ModelViewSet):
         summary="Create shop",
         description="Create a new shop (salon owners only)",
         request=ShopCreateUpdateSerializer,
+        examples=[
+            OpenApiExample(
+                'Create Shop Example',
+                value={
+                    'name': 'Sidra\'s Beauty Salon',
+                    'description': 'Premium beauty services',
+                    'address': '123 Main Street',
+                    'city': 'Karachi',
+                    'state': 'Sindh',
+                    'postal_code': '75500',
+                    'country': 'Pakistan',
+                    'phone': '+92-300-1234567',
+                    'email': 'info@sidrasbeauty.com',
+                    'timezone': 'Asia/Karachi',
+                    'is_active': True
+                },
+                request_only=True
+            )
+        ],
         responses={
             201: ShopSerializer,
             400: OpenApiResponse(description="Bad Request"),
@@ -296,9 +343,56 @@ class ShopViewSet(viewsets.ModelViewSet):
         
         return Response(stats)
     
+    @extend_schema(
+        summary="Get timezone choices",
+        description="Get list of all available IANA timezones for dropdown selection (public endpoint)",
+        responses={200: dict},
+        tags=['Shops - Public']
+    )
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
+    def timezone_choices(self, request):
+        """Get list of all available timezones"""
+        import pytz
+        
+        # Get all timezones and group by region
+        all_timezones = pytz.all_timezones
+        
+        # Group timezones by region
+        grouped = {}
+        for tz in all_timezones:
+            if '/' in tz:
+                region = tz.split('/')[0]
+                if region not in grouped:
+                    grouped[region] = []
+                grouped[region].append(tz)
+        
+        # Also provide a list of common timezones
+        common_timezones = [
+            'UTC',
+            'Asia/Karachi',
+            'Asia/Dubai',
+            'Asia/Tokyo',
+            'Asia/Shanghai',
+            'Asia/Singapore',
+            'Europe/London',
+            'Europe/Paris',
+            'Europe/Berlin',
+            'America/New_York',
+            'America/Chicago',
+            'America/Los_Angeles',
+            'America/Toronto',
+            'Australia/Sydney',
+        ]
+        
+        return Response({
+            'all_timezones': all_timezones,
+            'grouped_timezones': grouped,
+            'common_timezones': common_timezones
+        })
+    
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['list', 'retrieve', 'search', 'public']:
+        if self.action in ['list', 'retrieve', 'search', 'public', 'timezone_choices']:
             return [AllowAny()]
         elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active', 'dashboard']:
             return [IsClient(), IsShopOwner()]

@@ -192,6 +192,11 @@ class TimeSlotGenerateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional: Assign a specific staff member to this time slot"
     )
+    service_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional: Service this slot is for (validates staff assignment)"
+    )
     
     def validate(self, data):
         if data['start_date'] < datetime.now().date():
@@ -199,6 +204,20 @@ class TimeSlotGenerateSerializer(serializers.Serializer):
         
         if data['start_time'] >= data['end_time']:
             raise serializers.ValidationError("End time must be after start time")
+        
+        # If both service and staff are specified, validate the relationship
+        if data.get('service_id') and data.get('staff_member_id'):
+            from apps.staff.models import StaffService
+            
+            is_assigned = StaffService.objects.filter(
+                service_id=data['service_id'],
+                staff_member_id=data['staff_member_id']
+            ).exists()
+            
+            if not is_assigned:
+                raise serializers.ValidationError({
+                    'staff_member_id': 'This staff member is not assigned to the specified service'
+                })
                 
         return data
 
@@ -317,6 +336,9 @@ class DynamicAvailabilityResponseSerializer(serializers.Serializer):
     """
     shop_id = serializers.UUIDField(help_text="Shop UUID")
     shop_name = serializers.CharField(help_text="Shop name")
+    shop_timezone = serializers.CharField(
+        help_text="Shop timezone (IANA format, e.g., 'Asia/Karachi', 'Europe/London')"
+    )
     service_id = serializers.UUIDField(help_text="Service UUID")
     service_name = serializers.CharField(help_text="Service name")
     service_duration_minutes = serializers.IntegerField(

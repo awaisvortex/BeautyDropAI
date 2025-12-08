@@ -194,6 +194,20 @@ class BookingViewSet(viewsets.GenericViewSet,
         # Get available slots and check if requested time is valid
         available_slots = availability_service.get_available_slots()
         
+        # Check if no slots are available due to no staff assigned
+        if not available_slots:
+            eligible_staff = availability_service._get_eligible_staff()
+            if not eligible_staff.exists():
+                return Response(
+                    {'error': 'No staff available for this service. Please assign staff members to this service first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Otherwise, shop is closed or all slots are booked
+            return Response(
+                {'error': 'This time slot is not available. Please check available slots first.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         # Find the slot that matches the requested time
         matching_slot = None
         for slot in available_slots:
@@ -221,27 +235,21 @@ class BookingViewSet(viewsets.GenericViewSet,
         else:
             # Auto-assign from available staff
             if matching_slot.available_staff_ids:
-                # Priority: free staff > primary > any
                 available_staff = StaffMember.objects.filter(
                     id__in=matching_slot.available_staff_ids
                 )
                 
-                # Try free staff first
-                free_staff = available_staff.filter(services__isnull=True).first()
-                if free_staff:
-                    staff_member = free_staff
+                # Try primary staff for this service first
+                primary = StaffService.objects.filter(
+                    service=service,
+                    is_primary=True,
+                    staff_member__in=available_staff
+                ).first()
+                if primary:
+                    staff_member = primary.staff_member
                 else:
-                    # Try primary staff for this service
-                    primary = StaffService.objects.filter(
-                        service=service,
-                        is_primary=True,
-                        staff_member__in=available_staff
-                    ).first()
-                    if primary:
-                        staff_member = primary.staff_member
-                    else:
-                        # Any available staff
-                        staff_member = available_staff.first()
+                    # Any available staff
+                    staff_member = available_staff.first()
         
         # Calculate end time
         booking_end = booking_datetime + timedelta(minutes=service.duration_minutes)

@@ -449,6 +449,7 @@ class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
             response_data = {
                 'shop_id': availability_service.shop.id,
                 'shop_name': availability_service.shop.name,
+                'shop_timezone': availability_service.shop.timezone,
                 'service_id': availability_service.service.id,
                 'service_name': availability_service.service.name,
                 'service_duration_minutes': availability_service.service_duration,
@@ -463,8 +464,11 @@ class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
             return Response(response_data)
             
         except Exception as e:
+            import traceback
+            print(f"Dynamic availability error: {e}")
+            print(traceback.format_exc())
             return Response(
-                {'error': str(e)},
+                {'error': str(e), 'traceback': traceback.format_exc()},
                 status=status.HTTP_400_BAD_REQUEST
             )
     
