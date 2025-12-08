@@ -203,7 +203,7 @@ class AvailabilityService:
         
         Staff eligibility logic:
         - If service HAS assigned staff → Only those staff members
-        - If service has NO assigned staff → ALL active shop staff
+        - If service has NO assigned staff → EMPTY (no staff available)
         
         Returns:
             QuerySet of eligible StaffMember objects
@@ -225,11 +225,9 @@ class AvailabilityService:
                 services__id=self.service_id
             ).distinct()
         else:
-            # Service has no assigned staff - show ALL shop staff
-            self._eligible_staff = StaffMember.objects.filter(
-                shop=self.shop,
-                is_active=True
-            )
+            # Service has no assigned staff - return empty queryset
+            # This enforces that all services must have staff explicitly assigned
+            self._eligible_staff = StaffMember.objects.none()
         
         return self._eligible_staff
     
