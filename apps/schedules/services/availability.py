@@ -347,9 +347,11 @@ class AvailabilityService:
             shop_close = timezone.make_aware(shop_close)
         
         # Calculate minimum allowed slot time (now + buffer) if target is today
+        # Use UTC for consistency with shop hours
         now = timezone.now()
+        now_date_utc = now.date()  # This is already UTC since Django's now() returns UTC
         min_slot_time = None
-        if self.target_date == now.date():
+        if self.target_date == now_date_utc:
             min_slot_time = now + timedelta(minutes=self.buffer_minutes)
         
         # Get list of eligible staff IDs for quick lookup

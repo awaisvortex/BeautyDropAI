@@ -463,8 +463,11 @@ class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
             return Response(response_data)
             
         except Exception as e:
+            import traceback
+            print(f"Dynamic availability error: {e}")
+            print(traceback.format_exc())
             return Response(
-                {'error': str(e)},
+                {'error': str(e), 'traceback': traceback.format_exc()},
                 status=status.HTTP_400_BAD_REQUEST
             )
     
