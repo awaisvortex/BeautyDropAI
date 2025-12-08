@@ -449,6 +449,7 @@ class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
             response_data = {
                 'shop_id': availability_service.shop.id,
                 'shop_name': availability_service.shop.name,
+                'shop_timezone': availability_service.shop.timezone,
                 'service_id': availability_service.service.id,
                 'service_name': availability_service.service.name,
                 'service_duration_minutes': availability_service.service_duration,

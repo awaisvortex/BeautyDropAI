@@ -37,6 +37,13 @@ class Shop(BaseModel):
     logo_url = models.URLField(blank=True)
     cover_image_url = models.URLField(blank=True)
     
+    # Timezone
+    timezone = models.CharField(
+        max_length=63,
+        default='UTC',
+        help_text='Shop timezone (IANA timezone, e.g., Asia/Karachi, Europe/London, America/Los_Angeles)'
+    )
+    
     # Status
     is_active = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False)

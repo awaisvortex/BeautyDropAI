@@ -336,6 +336,9 @@ class DynamicAvailabilityResponseSerializer(serializers.Serializer):
     """
     shop_id = serializers.UUIDField(help_text="Shop UUID")
     shop_name = serializers.CharField(help_text="Shop name")
+    shop_timezone = serializers.CharField(
+        help_text="Shop timezone (IANA format, e.g., 'Asia/Karachi', 'Europe/London')"
+    )
     service_id = serializers.UUIDField(help_text="Service UUID")
     service_name = serializers.CharField(help_text="Service name")
     service_duration_minutes = serializers.IntegerField(
