@@ -16,7 +16,8 @@ from .serializers import (
     StaffMemberSerializer,
     StaffMemberCreateUpdateSerializer,
     StaffMemberDetailSerializer,
-    StaffServiceAssignmentSerializer
+    StaffServiceAssignmentSerializer,
+    ResendVerificationLinkSerializer
 )
 
 
@@ -481,10 +482,258 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
+    @extend_schema(
+        summary="Resend verification link",
+        description="""
+        Resend Clerk verification/invitation link to a staff member.
+        
+        Use this endpoint when:
+        - The first invitation email wasn't received
+        - The invitation link has expired
+        - Staff member needs a new link for any reason
+        
+        Requires staff_id and email for verification.
+        """,
+        request=ResendVerificationLinkSerializer,
+        responses={
+            200: OpenApiResponse(
+                description="Verification link sent successfully",
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'message': {'type': 'string', 'example': 'Verification link sent successfully to jane@example.com'},
+                        'staff_member': {'type': 'object'}
+                    }
+                }
+            ),
+            400: OpenApiResponse(description="Bad Request - Invalid data or staff already has account"),
+            403: OpenApiResponse(description="Forbidden - Not shop owner"),
+            404: OpenApiResponse(description="Staff member not found or email mismatch")
+        },
+        tags=['Staff - Client']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[IsClient, IsShopOwner])
+    def resend_verification_link(self, request):
+        """
+        Resend verification/invitation link to staff member.
+        
+        Takes staff_id and email in request body for verification.
+        Salon owners can use this to resend links if original expired or wasn't received.
+        """
+        staff_id = request.data.get('staff_id')
+        email = request.data.get('email')
+        
+        # Validate required fields
+        if not staff_id or not email:
+            return Response(
+                {'error': 'Both staff_id and email are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find staff member
+        try:
+            staff_member = StaffMember.objects.select_related('shop').get(id=staff_id)
+        except (StaffMember.DoesNotExist, ValueError):
+            return Response(
+                {'error': 'Staff member not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verify email matches
+        if staff_member.email.lower() != email.lower():
+            return Response(
+                {'error': 'Email does not match staff member record'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verify shop ownership
+        if staff_member.shop.client.user != request.user:
+            return Response(
+                {'error': 'You are not the owner of this shop'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if already has account
+        if staff_member.user is not None:
+            return Response(
+                {'error': 'Staff member already has an account. They can use forgot password if needed.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if staff_member.invite_status == 'accepted':
+            return Response(
+                {'error': 'Invitation already accepted'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from apps.authentication.services.clerk_api import clerk_client
+        from django.conf import settings
+        from django.utils import timezone
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Revoke old invitation if exists
+        if staff_member.clerk_invitation_id:
+            try:
+                clerk_client.revoke_invitation(staff_member.clerk_invitation_id)
+            except Exception as e:
+                logger.warning(f"Could not revoke old invitation: {e}")
+        
+        # Send new invitation
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        redirect_url = f"{frontend_url}/staff/complete-signup"
+        
+        invitation = clerk_client.create_invitation(
+            email_address=staff_member.email,
+            redirect_url=redirect_url,
+            public_metadata={
+                'role': 'staff',
+                'shop_id': str(staff_member.shop.id),
+                'staff_member_id': str(staff_member.id)
+            }
+        )
+        
+        if invitation:
+            staff_member.invite_status = 'sent'
+            staff_member.invite_sent_at = timezone.now()
+            staff_member.clerk_invitation_id = invitation.get('id', '')
+            staff_member.save(update_fields=['invite_status', 'invite_sent_at', 'clerk_invitation_id'])
+            logger.info(f"Verification link resent to staff member {staff_member.email}")
+            
+            return Response({
+                'message': f'Verification link sent successfully to {staff_member.email}',
+                'staff_member': StaffMemberSerializer(staff_member).data
+            })
+        else:
+            return Response(
+                {'error': 'Failed to send verification link. Please try again later.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
     def get_permissions(self):
         """Set permissions based on action"""
         if self.action in ['list', 'retrieve', 'available_for_service', 'available_for_time_slot']:
             return [AllowAny()]
-        elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_availability', 'assign_services', 'remove_service', 'resend_invite']:
+        elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_availability', 'assign_services', 'remove_service', 'resend_invite', 'resend_verification_link']:
             return [IsClient(), IsShopOwner()]
         return super().get_permissions()
+    
+    @extend_schema(
+        summary="Sync staff with Clerk",
+        description="""
+        Synchronize staff member status with Clerk users.
+        
+        This endpoint checks Clerk for users with matching emails and updates
+        the invite_status and invite_accepted_at for staff members who have 
+        completed signup but weren't properly tracked.
+        
+        Use this to fix staff members who show as 'sent' but have actually
+        accepted their invitation.
+        """,
+        responses={
+            200: OpenApiResponse(
+                description="Sync completed",
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'message': {'type': 'string'},
+                        'synced_count': {'type': 'integer'},
+                        'synced_staff': {'type': 'array'}
+                    }
+                }
+            ),
+            403: OpenApiResponse(description="Forbidden")
+        },
+        tags=['Staff - Client']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[IsClient])
+    def sync_with_clerk(self, request):
+        """
+        Sync staff members with Clerk to fix any status mismatches.
+        Matches staff by email and updates invite status if user exists in Clerk.
+        """
+        from apps.authentication.services.clerk_api import clerk_client
+        from apps.authentication.models import User
+        from django.utils import timezone
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Get client's shops
+        try:
+            client = request.user.client_profile
+            shop_ids = client.shops.values_list('id', flat=True)
+        except Exception:
+            return Response(
+                {'error': 'Client profile not found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get staff members with pending invites for this client's shops
+        pending_staff = StaffMember.objects.filter(
+            shop_id__in=shop_ids,
+            invite_status='sent',
+            user__isnull=True
+        )
+        
+        synced = []
+        
+        for staff in pending_staff:
+            # Check if user with this email exists in Django
+            try:
+                user = User.objects.get(email__iexact=staff.email)
+                
+                # Link user to staff member
+                staff.user = user
+                staff.invite_status = 'accepted'
+                staff.invite_accepted_at = timezone.now()
+                staff.save(update_fields=['user', 'invite_status', 'invite_accepted_at'])
+                
+                # Update user role if needed
+                if user.role != 'staff':
+                    user.role = 'staff'
+                    user.save(update_fields=['role'])
+                
+                synced.append({
+                    'staff_id': str(staff.id),
+                    'email': staff.email,
+                    'name': staff.name
+                })
+                logger.info(f"Synced staff {staff.name} ({staff.email})")
+                
+            except User.DoesNotExist:
+                # User not in Django yet, try Clerk API
+                clerk_user = clerk_client.get_user_by_email(staff.email)
+                if clerk_user:
+                    # Create user in Django and link
+                    user = User.objects.create(
+                        clerk_user_id=clerk_user['id'],
+                        email=staff.email,
+                        first_name=clerk_user.get('first_name', ''),
+                        last_name=clerk_user.get('last_name', ''),
+                        role='staff',
+                        email_verified=True,
+                        is_active=True
+                    )
+                    
+                    staff.user = user
+                    staff.invite_status = 'accepted'
+                    staff.invite_accepted_at = timezone.now()
+                    staff.save(update_fields=['user', 'invite_status', 'invite_accepted_at'])
+                    
+                    synced.append({
+                        'staff_id': str(staff.id),
+                        'email': staff.email,
+                        'name': staff.name
+                    })
+                    logger.info(f"Synced staff {staff.name} ({staff.email}) from Clerk")
+            
+            except Exception as e:
+                logger.error(f"Error syncing staff {staff.email}: {str(e)}")
+        
+        return Response({
+            'message': f'Sync completed. {len(synced)} staff member(s) updated.',
+            'synced_count': len(synced),
+            'synced_staff': synced
+        })

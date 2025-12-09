@@ -255,3 +255,27 @@ class StaffMemberDetailSerializer(serializers.ModelSerializer):
         thirty_days_ago = timezone.now() - timedelta(days=30)
         return obj.bookings.filter(created_at__gte=thirty_days_ago).count()
 
+
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Resend Verification Link',
+            value={
+                'staff_id': '550e8400-e29b-41d4-a716-446655440000',
+                'email': 'jane.smith@example.com'
+            },
+            request_only=True,
+            description='Resend verification/invitation link to a staff member'
+        )
+    ]
+)
+class ResendVerificationLinkSerializer(serializers.Serializer):
+    """Serializer for resend verification link request"""
+    staff_id = serializers.UUIDField(
+        required=True,
+        help_text="UUID of the staff member"
+    )
+    email = serializers.EmailField(
+        required=True,
+        help_text="Email address of the staff member (must match record)"
+    )

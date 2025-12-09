@@ -46,6 +46,34 @@ class ClerkClient:
             logger.error(f"Error getting user from Clerk: {str(e)}")
             return None
     
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user from Clerk by email address
+        
+        Args:
+            email: User's email address
+            
+        Returns:
+            User data or None
+        """
+        try:
+            url = f"{self.api_url}/users"
+            params = {'email_address': [email]}
+            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                users = response.json()
+                if users and len(users) > 0:
+                    return users[0]
+                return None
+            
+            logger.warning(f"Failed to get user by email: {response.status_code}")
+            return None
+            
+        except requests.RequestException as e:
+            logger.error(f"Error getting user by email from Clerk: {str(e)}")
+            return None
+    
     def list_users(self, limit: int = 100, offset: int = 0) -> list:
         """
         List users from Clerk
