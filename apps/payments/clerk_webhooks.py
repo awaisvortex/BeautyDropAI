@@ -47,6 +47,7 @@ def handle_user_created(event):
     Handle user.created event from Clerk.
     
     Automatically creates a Stripe customer for the new user.
+    For staff members, also links the user to their StaffMember record.
     This ensures every user has a Stripe customer record ready
     for future subscription creation.
     """
@@ -65,6 +66,17 @@ def handle_user_created(event):
             logger.error(error_msg)
             log_webhook_event('user.created', event_id, event, False, error_msg)
             return
+        
+        # Check if this is a staff signup (from invitation)
+        public_metadata = user_data.get('public_metadata', {})
+        if public_metadata.get('role') == 'staff':
+            # Link to StaffMember record
+            from apps.staff.services import handle_staff_signup
+            staff_linked = handle_staff_signup(user_data)
+            if staff_linked:
+                logger.info(f"Staff member linked for user {user.email}")
+            else:
+                logger.warning(f"Failed to link staff member for user {user.email}")
         
         # Check if Stripe customer already exists
         if hasattr(user, 'stripe_customer'):

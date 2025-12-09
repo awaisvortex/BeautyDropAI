@@ -6,7 +6,7 @@ import jwt
 from django.conf import settings
 from typing import Optional, Dict, Any
 import logging
-from apps.core.utils.constants import USER_ROLE_CLIENT, USER_ROLE_CUSTOMER
+from apps.core.utils.constants import USER_ROLE_CLIENT, USER_ROLE_CUSTOMER, USER_ROLE_STAFF
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,8 @@ class ClerkService:
         role = USER_ROLE_CUSTOMER
         if clerk_role == 'client':
             role = USER_ROLE_CLIENT
+        elif clerk_role == 'staff':
+            role = USER_ROLE_STAFF
         
         return {
             'clerk_user_id': clerk_user_data.get('id'),

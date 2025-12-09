@@ -5,10 +5,25 @@ Application-wide constants
 # User roles
 USER_ROLE_CLIENT = 'client'
 USER_ROLE_CUSTOMER = 'customer'
+USER_ROLE_STAFF = 'staff'
 
 USER_ROLES = [
     (USER_ROLE_CLIENT, 'Client'),
     (USER_ROLE_CUSTOMER, 'Customer'),
+    (USER_ROLE_STAFF, 'Staff'),
+]
+
+# Staff invitation statuses
+INVITE_STATUS_PENDING = 'pending'
+INVITE_STATUS_SENT = 'sent'
+INVITE_STATUS_ACCEPTED = 'accepted'
+INVITE_STATUS_EXPIRED = 'expired'
+
+INVITE_STATUSES = [
+    (INVITE_STATUS_PENDING, 'Pending'),
+    (INVITE_STATUS_SENT, 'Sent'),
+    (INVITE_STATUS_ACCEPTED, 'Accepted'),
+    (INVITE_STATUS_EXPIRED, 'Expired'),
 ]
 
 # Booking statuses

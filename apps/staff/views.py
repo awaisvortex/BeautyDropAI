@@ -86,7 +86,7 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Create staff member",
-        description="Add a new staff member to a shop (salon owners only). Requires shop_id in request body.",
+        description="Add a new staff member to a shop and send invitation email (salon owners only). Requires shop_id and email in request body.",
         request=StaffMemberCreateUpdateSerializer,
         responses={
             201: StaffMemberSerializer,
@@ -124,6 +124,40 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
             )
         
         staff_member = serializer.save(shop=shop)
+        
+        # Send Clerk invitation if requested
+        send_invite = serializer.validated_data.get('send_invite', True)
+        if send_invite and staff_member.email:
+            from apps.authentication.services.clerk_api import clerk_client
+            from django.conf import settings
+            from django.utils import timezone
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            # Build redirect URL for staff portal
+            frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+            redirect_url = f"{frontend_url}/staff/complete-signup"
+            
+            invitation = clerk_client.create_invitation(
+                email_address=staff_member.email,
+                redirect_url=redirect_url,
+                public_metadata={
+                    'role': 'staff',
+                    'shop_id': str(shop.id),
+                    'staff_member_id': str(staff_member.id)
+                }
+            )
+            
+            if invitation:
+                staff_member.invite_status = 'sent'
+                staff_member.invite_sent_at = timezone.now()
+                staff_member.clerk_invitation_id = invitation.get('id', '')
+                staff_member.save(update_fields=['invite_status', 'invite_sent_at', 'clerk_invitation_id'])
+                logger.info(f"Invitation sent to staff member {staff_member.email}")
+            else:
+                logger.error(f"Failed to send invitation to staff member {staff_member.email}")
+        
         return Response(
             StaffMemberSerializer(staff_member).data,
             status=status.HTTP_201_CREATED
@@ -380,10 +414,77 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
         serializer = StaffMemberSerializer(staff_members, many=True)
         return Response(serializer.data)
     
+    @extend_schema(
+        summary="Resend invitation",
+        description="Resend invitation email to a staff member who hasn't accepted yet (salon owners only)",
+        responses={
+            200: StaffMemberSerializer,
+            400: OpenApiResponse(description="Bad Request - Staff already has an account"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Staff member not found")
+        },
+        tags=['Staff - Client']
+    )
+    @action(detail=True, methods=['post'], permission_classes=[IsClient, IsShopOwner])
+    def resend_invite(self, request, pk=None):
+        """Resend invitation email to staff member"""
+        staff_member = self.get_object()
+        
+        if staff_member.user is not None:
+            return Response(
+                {'error': 'Staff member already has an account'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if staff_member.invite_status == 'accepted':
+            return Response(
+                {'error': 'Invitation already accepted'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from apps.authentication.services.clerk_api import clerk_client
+        from django.conf import settings
+        from django.utils import timezone
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Revoke old invitation if exists
+        if staff_member.clerk_invitation_id:
+            clerk_client.revoke_invitation(staff_member.clerk_invitation_id)
+        
+        # Send new invitation
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        redirect_url = f"{frontend_url}/staff/complete-signup"
+        
+        invitation = clerk_client.create_invitation(
+            email_address=staff_member.email,
+            redirect_url=redirect_url,
+            public_metadata={
+                'role': 'staff',
+                'shop_id': str(staff_member.shop.id),
+                'staff_member_id': str(staff_member.id)
+            }
+        )
+        
+        if invitation:
+            staff_member.invite_status = 'sent'
+            staff_member.invite_sent_at = timezone.now()
+            staff_member.clerk_invitation_id = invitation.get('id', '')
+            staff_member.save(update_fields=['invite_status', 'invite_sent_at', 'clerk_invitation_id'])
+            logger.info(f"Invitation resent to staff member {staff_member.email}")
+            
+            return Response(StaffMemberSerializer(staff_member).data)
+        else:
+            return Response(
+                {'error': 'Failed to send invitation'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
     def get_permissions(self):
         """Set permissions based on action"""
         if self.action in ['list', 'retrieve', 'available_for_service', 'available_for_time_slot']:
             return [AllowAny()]
-        elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_availability', 'assign_services', 'remove_service']:
+        elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_availability', 'assign_services', 'remove_service', 'resend_invite']:
             return [IsClient(), IsShopOwner()]
         return super().get_permissions()

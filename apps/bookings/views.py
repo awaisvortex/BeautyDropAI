@@ -66,6 +66,14 @@ class BookingViewSet(viewsets.GenericViewSet,
         elif user.role == 'client':
             queryset = queryset.filter(shop__client__user=user)
         
+        # Staff see only their assigned bookings
+        elif user.role == 'staff':
+            staff_profile = getattr(user, 'staff_profile', None)
+            if staff_profile:
+                queryset = queryset.filter(staff_member=staff_profile)
+            else:
+                queryset = queryset.none()
+        
         return queryset
     
     @extend_schema(

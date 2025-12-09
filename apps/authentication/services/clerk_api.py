@@ -97,6 +97,64 @@ class ClerkClient:
         except requests.RequestException as e:
             logger.error(f"Error updating user metadata: {str(e)}")
             return False
+    
+    def create_invitation(
+        self,
+        email_address: str,
+        redirect_url: str,
+        public_metadata: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create a Clerk invitation (magic link email)
+        
+        Args:
+            email_address: Staff member's email
+            redirect_url: URL to redirect after signup (staff portal)
+            public_metadata: {'role': 'staff', 'shop_id': '...', 'staff_member_id': '...'}
+            
+        Returns:
+            Invitation data if successful, None otherwise
+        """
+        try:
+            url = f"{self.api_url}/invitations"
+            payload = {
+                'email_address': email_address,
+                'redirect_url': redirect_url,
+                'public_metadata': public_metadata or {},
+                'notify': True  # Send email via Clerk
+            }
+            response = requests.post(url, headers=self.headers, json=payload, timeout=10)
+            
+            if response.status_code in [200, 201]:
+                logger.info(f"Invitation created successfully for {email_address}")
+                return response.json()
+            
+            logger.error(f"Failed to create invitation: {response.status_code} - {response.text}")
+            return None
+            
+        except requests.RequestException as e:
+            logger.error(f"Error creating Clerk invitation: {str(e)}")
+            return None
+    
+    def revoke_invitation(self, invitation_id: str) -> bool:
+        """
+        Revoke a pending invitation
+        
+        Args:
+            invitation_id: Clerk invitation ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            url = f"{self.api_url}/invitations/{invitation_id}/revoke"
+            response = requests.post(url, headers=self.headers, timeout=10)
+            
+            return response.status_code == 200
+            
+        except requests.RequestException as e:
+            logger.error(f"Error revoking invitation: {str(e)}")
+            return False
 
 
 # Singleton instance
