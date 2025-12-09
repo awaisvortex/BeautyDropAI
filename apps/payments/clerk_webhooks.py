@@ -47,6 +47,7 @@ def handle_user_created(event):
     Handle user.created event from Clerk.
     
     Automatically creates a Stripe customer for the new user.
+    For staff members, also links the user to their StaffMember record.
     This ensures every user has a Stripe customer record ready
     for future subscription creation.
     """
@@ -57,14 +58,45 @@ def handle_user_created(event):
     try:
         logger.info(f"Processing user.created: {user_data['id']}")
         
-        # Get the user (should already exist from Clerk authentication)
+        # Extract email from Clerk data
+        email_addresses = user_data.get('email_addresses', [])
+        primary_email = next(
+            (email['email_address'] for email in email_addresses 
+             if email.get('id') == user_data.get('primary_email_address_id')),
+            email_addresses[0]['email_address'] if email_addresses else None
+        )
+        
+        # Check if this is a staff signup (from invitation)
+        public_metadata = user_data.get('public_metadata', {})
+        is_staff = public_metadata.get('role') == 'staff'
+        
+        # Get or create the user
         try:
             user = User.objects.get(clerk_user_id=user_data['id'])
+            logger.info(f"Found existing user for clerk_user_id: {user_data['id']}")
         except User.DoesNotExist:
-            error_msg = f"User not found for clerk_user_id: {user_data['id']}"
-            logger.error(error_msg)
-            log_webhook_event('user.created', event_id, event, False, error_msg)
-            return
+            # User doesn't exist - create them
+            # This happens for staff signups via magic link
+            logger.info(f"Creating new user for clerk_user_id: {user_data['id']}")
+            
+            user = User.objects.create(
+                clerk_user_id=user_data['id'],
+                email=primary_email or '',
+                first_name=user_data.get('first_name', ''),
+                last_name=user_data.get('last_name', ''),
+                role='staff' if is_staff else 'customer',
+                email_verified=True,
+                is_active=True
+            )
+        
+        # Handle staff linking if this is a staff signup
+        if is_staff:
+            from apps.staff.services import handle_staff_signup
+            staff_linked = handle_staff_signup(user_data)
+            if staff_linked:
+                logger.info(f"Staff member linked for user {user.email}")
+            else:
+                logger.warning(f"Failed to link staff member for user {user.email}")
         
         # Check if Stripe customer already exists
         if hasattr(user, 'stripe_customer'):

@@ -3,6 +3,7 @@ Staff models
 """
 from django.db import models
 from apps.core.models import BaseModel
+from apps.core.utils.constants import INVITE_STATUSES, INVITE_STATUS_PENDING
 
 
 class StaffMember(BaseModel):
@@ -15,8 +16,18 @@ class StaffMember(BaseModel):
         related_name='staff_members'
     )
     
+    # Link to User for authentication (set after Clerk signup)
+    user = models.OneToOneField(
+        'authentication.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='staff_profile',
+        to_field='clerk_user_id'
+    )
+    
     name = models.CharField(max_length=255)
-    email = models.EmailField(blank=True)
+    email = models.EmailField()  # Required for invitation
     phone = models.CharField(max_length=20, blank=True)
     
     # Profile
@@ -25,6 +36,16 @@ class StaffMember(BaseModel):
     
     # Status
     is_active = models.BooleanField(default=True)
+    
+    # Invitation tracking
+    invite_status = models.CharField(
+        max_length=20,
+        choices=INVITE_STATUSES,
+        default=INVITE_STATUS_PENDING
+    )
+    invite_sent_at = models.DateTimeField(null=True, blank=True)
+    invite_accepted_at = models.DateTimeField(null=True, blank=True)
+    clerk_invitation_id = models.CharField(max_length=255, blank=True)
     
     # Services this staff member can provide (many-to-many through StaffService)
     services = models.ManyToManyField(
@@ -40,6 +61,8 @@ class StaffMember(BaseModel):
         ordering = ['name']
         indexes = [
             models.Index(fields=['shop', 'is_active']),
+            models.Index(fields=['email']),
+            models.Index(fields=['invite_status']),
         ]
     
     def __str__(self):

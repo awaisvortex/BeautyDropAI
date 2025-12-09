@@ -28,6 +28,18 @@ class IsCustomer(permissions.BasePermission):
         )
 
 
+class IsStaff(permissions.BasePermission):
+    """Permission check for staff members"""
+    message = "Only staff members can perform this action"
+    
+    def has_permission(self, request, view):
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role == 'staff'
+        )
+
+
 class IsShopOwner(permissions.BasePermission):
     """Permission check for shop ownership"""
     message = "You do not have permission to access this shop"
@@ -60,6 +72,18 @@ class IsClientOrReadOnly(permissions.BasePermission):
         return request.user and request.user.is_authenticated and request.user.role == 'client'
 
 
+class IsClientOrStaff(permissions.BasePermission):
+    """Permission for actions that both clients and staff can perform"""
+    message = "Only salon owners or staff members can perform this action"
+    
+    def has_permission(self, request, view):
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role in ['client', 'staff']
+        )
+
+
 class IsBookingOwner(permissions.BasePermission):
     """Permission check for booking ownership"""
     message = "You do not have permission to access this booking"
@@ -75,5 +99,11 @@ class IsBookingOwner(permissions.BasePermission):
         # Clients can access bookings for their shops
         if request.user.role == 'client':
             return obj.shop.client.user == request.user
+        
+        # Staff can access their assigned bookings
+        if request.user.role == 'staff':
+            staff_profile = getattr(request.user, 'staff_profile', None)
+            if staff_profile:
+                return obj.staff_member_id == staff_profile.id
         
         return False
