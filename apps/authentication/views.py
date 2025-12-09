@@ -135,3 +135,4 @@ def health_check(request):
         'database': db_status,
         'cache': cache_status
     })
+
