@@ -141,7 +141,7 @@ class ClerkClient:
             public_metadata: {'role': 'staff', 'shop_id': '...', 'staff_member_id': '...'}
             
         Returns:
-            Invitation data if successful, None otherwise
+            Invitation data if successful, error dict with 'error' key otherwise
         """
         try:
             url = f"{self.api_url}/invitations"
@@ -151,18 +151,27 @@ class ClerkClient:
                 'public_metadata': public_metadata or {},
                 'notify': True  # Send email via Clerk
             }
+            logger.info(f"Creating invitation for {email_address} with redirect_url: {redirect_url}")
             response = requests.post(url, headers=self.headers, json=payload, timeout=10)
             
             if response.status_code in [200, 201]:
                 logger.info(f"Invitation created successfully for {email_address}")
                 return response.json()
             
-            logger.error(f"Failed to create invitation: {response.status_code} - {response.text}")
-            return None
+            error_detail = response.text
+            try:
+                error_json = response.json()
+                if 'errors' in error_json and len(error_json['errors']) > 0:
+                    error_detail = error_json['errors'][0].get('message', response.text)
+            except Exception:
+                pass
+            
+            logger.error(f"Failed to create invitation for {email_address}: {response.status_code} - {error_detail}")
+            return {'error': error_detail, 'status_code': response.status_code}
             
         except requests.RequestException as e:
             logger.error(f"Error creating Clerk invitation: {str(e)}")
-            return None
+            return {'error': str(e), 'status_code': 500}
     
     def revoke_invitation(self, invitation_id: str) -> bool:
         """
