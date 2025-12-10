@@ -26,6 +26,7 @@ urlpatterns = [
     path('api/v1/bookings/', include('apps.bookings.urls')),
     path('api/v1/subscriptions/', include('apps.subscriptions.urls')),
     path('api/v1/notifications/', include('apps.notifications.urls')),
+    path('api/v1/calendars/', include('apps.calendars.urls')),
     
     # Webhooks (no version prefix for webhooks)
     path('api/payments/', include('apps.payments.urls')),

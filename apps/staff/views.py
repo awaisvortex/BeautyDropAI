@@ -468,7 +468,7 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
             }
         )
         
-        if invitation:
+        if invitation and 'error' not in invitation:
             staff_member.invite_status = 'sent'
             staff_member.invite_sent_at = timezone.now()
             staff_member.clerk_invitation_id = invitation.get('id', '')
@@ -477,8 +477,11 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
             
             return Response(StaffMemberSerializer(staff_member).data)
         else:
+            error_message = 'Failed to send invitation'
+            if invitation and 'error' in invitation:
+                error_message = invitation['error']
             return Response(
-                {'error': 'Failed to send invitation'},
+                {'error': error_message},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
@@ -594,7 +597,7 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
             }
         )
         
-        if invitation:
+        if invitation and 'error' not in invitation:
             staff_member.invite_status = 'sent'
             staff_member.invite_sent_at = timezone.now()
             staff_member.clerk_invitation_id = invitation.get('id', '')
@@ -606,8 +609,11 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
                 'staff_member': StaffMemberSerializer(staff_member).data
             })
         else:
+            error_message = 'Failed to send verification link. Please try again later.'
+            if invitation and 'error' in invitation:
+                error_message = invitation['error']
             return Response(
-                {'error': 'Failed to send verification link. Please try again later.'},
+                {'error': error_message},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     

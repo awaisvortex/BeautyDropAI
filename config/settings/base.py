@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'apps.bookings',
     'apps.subscriptions',
     'apps.notifications',
+    'apps.calendars',
 ]
 
 MIDDLEWARE = [
@@ -182,6 +183,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Subscriptions - Public', 'description': 'Public subscription plan browsing'},
         {'name': 'Subscriptions - Client', 'description': 'Client subscription management'},
         {'name': 'Subscriptions - Admin', 'description': 'Admin subscription plan management'},
+        {'name': 'Calendars', 'description': 'Google Calendar integration for booking sync'},
     ],
     'APPEND_COMPONENTS': {
         'securitySchemes': {
