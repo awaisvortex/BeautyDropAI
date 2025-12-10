@@ -5,7 +5,7 @@ description = "Beauty Drop AI - AI-powered beauty salon booking marketplace with
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
 license = "MIT"
-packages = [{include = "apps"}, {include = "config"}, {include = "infrastructure"}]
+packages = [{include = "apps"}, {include = "config"}]
 
 [tool.poetry.dependencies]
 python = "^3.13.7"
@@ -33,6 +33,10 @@ clerk-backend-api = "^1.2.5"
 
 # Stripe Payment
 stripe = "^8.0.0"
+
+# Google Calendar Integration
+google-api-python-client = "^2.100.0"
+google-auth = "^2.23.0"
 
 # Celery (Task Queue)
 celery = "^5.3.6"
