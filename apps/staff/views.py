@@ -83,7 +83,47 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
         tags=['Staff - Public']
     )
     def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
+        """
+        Get staff member details with auto-sync.
+        
+        If staff has invite_status='sent' but no linked user, 
+        check if a user with matching email exists to auto-link.
+        """
+        instance = self.get_object()
+        
+        # Auto-sync: Check if staff accepted invitation but webhook was missed
+        if instance.invite_status == 'sent' and instance.user is None and instance.email:
+            from apps.authentication.models import User
+            from django.utils import timezone
+            
+            try:
+                # Check if user with matching email exists
+                user = User.objects.get(email__iexact=instance.email)
+                
+                # Link user to staff member
+                instance.user = user
+                instance.invite_status = 'accepted'
+                instance.invite_accepted_at = timezone.now()
+                instance.save(update_fields=['user', 'invite_status', 'invite_accepted_at'])
+                
+                # Ensure user has staff role
+                if user.role != 'staff':
+                    user.role = 'staff'
+                    user.save(update_fields=['role'])
+                    
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Auto-synced staff {instance.name} ({instance.email}) - linked to user")
+                
+            except User.DoesNotExist:
+                pass  # User hasn't signed up yet, that's fine
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Error auto-syncing staff {instance.email}: {e}")
+        
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
     
     @extend_schema(
         summary="Create staff member",
