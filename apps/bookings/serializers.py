@@ -163,6 +163,44 @@ class BookingStatsSerializer(serializers.Serializer):
 
 
 # ============================================
+# Owner Booking Management Serializers
+# ============================================
+
+class OwnerRescheduleSerializer(serializers.Serializer):
+    """
+    Serializer for shop owner to reschedule a booking.
+    
+    Uses dynamic availability to validate the new slot.
+    """
+    date = serializers.DateField(
+        help_text="New date for the booking (YYYY-MM-DD)"
+    )
+    start_time = serializers.TimeField(
+        help_text="New start time for the booking (HH:MM)"
+    )
+    
+    def validate_date(self, value):
+        """Ensure date is not in the past."""
+        if value < timezone.now().date():
+            raise serializers.ValidationError("Date cannot be in the past")
+        return value
+
+
+class StaffReassignSerializer(serializers.Serializer):
+    """
+    Serializer for shop owner to reassign staff for a booking.
+    
+    Validates that:
+    - Staff member exists and is active
+    - Staff member belongs to the same shop
+    - Staff member can provide the service
+    """
+    staff_member_id = serializers.UUIDField(
+        help_text="UUID of the new staff member to assign"
+    )
+
+
+# ============================================
 # Dynamic Booking Serializers (No TimeSlot Required)
 # ============================================
 
@@ -213,15 +251,22 @@ class DynamicBookingCreateSerializer(serializers.Serializer):
         from apps.services.models import Service
         from apps.staff.models import StaffMember
         from datetime import datetime, timedelta
+        import pytz
         
-        service = Service.objects.get(id=data['service_id'])
+        service = Service.objects.select_related('shop').get(id=data['service_id'])
         
-        # Create datetime from date and time
-        booking_datetime = datetime.combine(data['date'], data['start_time'])
-        if timezone.is_naive(booking_datetime):
-            booking_datetime = timezone.make_aware(booking_datetime)
+        # Get shop's timezone
+        try:
+            shop_tz = pytz.timezone(service.shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
         
-        # Check if booking time is in the past
+        # Create datetime from date and time, localized to shop's timezone
+        # The date and time from request are interpreted as shop's local time
+        naive_datetime = datetime.combine(data['date'], data['start_time'])
+        booking_datetime = shop_tz.localize(naive_datetime)
+        
+        # Check if booking time is in the past (compare in UTC)
         buffer_time = timezone.now() + timedelta(minutes=15)
         if booking_datetime < buffer_time:
             raise serializers.ValidationError(

@@ -268,10 +268,20 @@ class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
         
         if created:
             print(f"DEBUG: Auto-created schedule for {day_name}")
-            
-        # Create the slot
-        current_time = datetime.combine(target_date, start_time_req)
-        end_time_dt = datetime.combine(target_date, end_time_req)
+        
+        # Get shop's timezone for proper localization
+        import pytz
+        try:
+            shop_tz = pytz.timezone(shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
+        
+        # Create the slot with localized datetime
+        current_time_naive = datetime.combine(target_date, start_time_req)
+        end_time_naive = datetime.combine(target_date, end_time_req)
+        
+        current_time = shop_tz.localize(current_time_naive)
+        end_time_dt = shop_tz.localize(end_time_naive)
         
         # Check for existing slots at the exact same time
         # Allow multiple slots for the same time period, limited by the number of active staff
