@@ -166,11 +166,37 @@ class BookingStatsSerializer(serializers.Serializer):
 # Owner Booking Management Serializers
 # ============================================
 
+from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
+
+
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Reschedule to next week',
+            value={
+                'date': '2024-12-20',
+                'start_time': '14:00'
+            },
+            request_only=True,
+            description='Reschedule booking to December 20th at 2 PM'
+        ),
+        OpenApiExample(
+            'Same day reschedule',
+            value={
+                'date': '2024-12-16',
+                'start_time': '10:30'
+            },
+            request_only=True,
+            description='Reschedule to a different time on the same day'
+        )
+    ]
+)
 class OwnerRescheduleSerializer(serializers.Serializer):
     """
     Serializer for shop owner to reschedule a booking.
     
     Uses dynamic availability to validate the new slot.
+    The new slot must be available (shop open, staff available).
     """
     date = serializers.DateField(
         help_text="New date for the booking (YYYY-MM-DD)"
@@ -186,18 +212,46 @@ class OwnerRescheduleSerializer(serializers.Serializer):
         return value
 
 
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Reassign to specific staff',
+            value={
+                'staff_member_id': 'b9743cc7-1364-4a32-a3b7-730a02365f00'
+            },
+            request_only=True,
+            description='Reassign booking to a different staff member'
+        )
+    ]
+)
 class StaffReassignSerializer(serializers.Serializer):
     """
     Serializer for shop owner to reassign staff for a booking.
     
     Validates that:
+    - Cannot reassign to the same staff member
     - Staff member exists and is active
     - Staff member belongs to the same shop
     - Staff member can provide the service
+    - Staff member is available at the booking time (no clashes)
     """
     staff_member_id = serializers.UUIDField(
-        help_text="UUID of the new staff member to assign"
+        help_text="UUID of the new staff member to assign. Cannot be the same as current staff."
     )
+
+
+class StaffReassignResponseSerializer(serializers.Serializer):
+    """Response serializer for staff reassignment."""
+    message = serializers.CharField()
+    previous_staff = serializers.CharField()
+    new_staff = serializers.CharField()
+    booking = BookingSerializer()
+
+
+class OwnerRescheduleResponseSerializer(serializers.Serializer):
+    """Response serializer for owner reschedule."""
+    message = serializers.CharField(required=False)
+    booking = BookingSerializer()
 
 
 # ============================================

@@ -19,7 +19,9 @@ from .serializers import (
     BookingStatsSerializer,
     DynamicBookingCreateSerializer,
     OwnerRescheduleSerializer,
-    StaffReassignSerializer
+    StaffReassignSerializer,
+    StaffReassignResponseSerializer,
+    OwnerRescheduleResponseSerializer
 )
 
 
@@ -528,14 +530,27 @@ class BookingViewSet(viewsets.GenericViewSet,
         description="""
         Reschedule a booking to a new date/time.
         
-        Shop owners can reschedule any booking for their shop.
-        The new slot must be available (verified via dynamic availability).
+        **Validation:**
+        - Date cannot be in the past
+        - Shop must be open on the new date
+        - New time slot must be available
+        - If assigned staff is not available at new time, will auto-reassign to available staff
         """,
         request=OwnerRescheduleSerializer,
+        examples=[
+            OpenApiExample(
+                'Reschedule Booking',
+                value={
+                    'date': '2024-12-20',
+                    'start_time': '14:00'
+                },
+                request_only=True
+            )
+        ],
         responses={
             200: BookingSerializer,
-            400: OpenApiResponse(description="Bad Request - Slot not available"),
-            403: OpenApiResponse(description="Forbidden"),
+            400: OpenApiResponse(description="Bad Request - Slot not available or shop closed"),
+            403: OpenApiResponse(description="Forbidden - Not shop owner"),
             404: OpenApiResponse(description="Booking not found")
         },
         tags=['Bookings - Client']
@@ -643,14 +658,41 @@ class BookingViewSet(viewsets.GenericViewSet,
         description="""
         Reassign a booking to a different staff member.
         
-        Shop owners can reassign any booking to any eligible staff member.
-        The staff member must be able to provide the service.
+        **Validation:**
+        - Cannot reassign to the same staff member
+        - New staff must be able to provide the service
+        - New staff must be available at the booking time (no clashes)
+        - A staff member must always be assigned (cannot remove without replacement)
+        
+        **Automatic behavior:**
+        - Previous staff's schedule is freed at this time
+        - New staff's schedule is blocked for this booking
         """,
         request=StaffReassignSerializer,
+        examples=[
+            OpenApiExample(
+                'Reassign Staff',
+                value={
+                    'staff_member_id': 'b9743cc7-1364-4a32-a3b7-730a02365f00'
+                },
+                request_only=True
+            )
+        ],
         responses={
-            200: BookingSerializer,
-            400: OpenApiResponse(description="Bad Request - Staff cannot provide this service"),
-            403: OpenApiResponse(description="Forbidden"),
+            200: OpenApiResponse(
+                description="Staff reassigned successfully",
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'message': {'type': 'string', 'example': 'Staff reassigned from John to Jane'},
+                        'previous_staff': {'type': 'string', 'example': 'John Doe'},
+                        'new_staff': {'type': 'string', 'example': 'Jane Smith'},
+                        'booking': {'type': 'object'}
+                    }
+                }
+            ),
+            400: OpenApiResponse(description="Bad Request - Same staff, staff unavailable, or cannot provide service"),
+            403: OpenApiResponse(description="Forbidden - Not shop owner"),
             404: OpenApiResponse(description="Booking or staff not found")
         },
         tags=['Bookings - Client']
@@ -679,6 +721,13 @@ class BookingViewSet(viewsets.GenericViewSet,
         
         staff_member_id = serializer.validated_data['staff_member_id']
         
+        # Check if trying to reassign to the same staff
+        if booking.staff_member and booking.staff_member.id == staff_member_id:
+            return Response(
+                {'error': 'This staff member is already assigned to this booking'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         # Get and validate staff member
         from apps.staff.models import StaffMember
         try:
@@ -696,17 +745,64 @@ class BookingViewSet(viewsets.GenericViewSet,
         # Check if staff can provide this service
         if new_staff.services.exists() and not new_staff.services.filter(id=booking.service.id).exists():
             return Response(
-                {'error': 'This staff member cannot provide the booked service'},
+                {
+                    'error': 'This staff member cannot provide the booked service',
+                    'staff_name': new_staff.name,
+                    'service_name': booking.service.name,
+                    'assigned_services': list(new_staff.services.values_list('name', flat=True))
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Update booking
-        old_staff_name = booking.staff_member.name if booking.staff_member else 'None'
+        # Check if new staff is available at this booking time (no clashes)
+        from datetime import timedelta
+        booking_end = booking.booking_datetime + timedelta(minutes=booking.service.duration_minutes)
+        
+        conflicting_booking = Booking.objects.filter(
+            staff_member=new_staff,
+            status__in=['pending', 'confirmed'],
+            booking_datetime__lt=booking_end,
+        ).exclude(id=booking.id)
+        
+        # Check for actual time overlap
+        has_conflict = False
+        conflict_details = None
+        for existing_booking in conflicting_booking:
+            existing_end = existing_booking.booking_datetime + timedelta(
+                minutes=existing_booking.service.duration_minutes
+            )
+            if existing_booking.booking_datetime < booking_end and existing_end > booking.booking_datetime:
+                has_conflict = True
+                conflict_details = {
+                    'conflicting_booking_id': str(existing_booking.id),
+                    'conflicting_time': existing_booking.booking_datetime.isoformat(),
+                    'conflicting_service': existing_booking.service.name
+                }
+                break
+        
+        if has_conflict:
+            return Response(
+                {
+                    'error': f'{new_staff.name} already has a booking at this time',
+                    'staff_name': new_staff.name,
+                    'booking_time': booking.booking_datetime.isoformat(),
+                    **conflict_details
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Store old staff info before reassignment
+        old_staff = booking.staff_member
+        old_staff_name = old_staff.name if old_staff else 'Unassigned'
+        
+        # Update booking with new staff
         booking.staff_member = new_staff
         booking.save(update_fields=['staff_member'])
         
         return Response({
             'message': f'Staff reassigned from {old_staff_name} to {new_staff.name}',
+            'previous_staff': old_staff_name,
+            'new_staff': new_staff.name,
             'booking': BookingSerializer(booking).data
         })
     
