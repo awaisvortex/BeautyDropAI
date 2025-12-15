@@ -196,15 +196,56 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Delete staff member",
-        description="Remove a staff member from a shop (salon owners only)",
+        description="""
+        Remove a staff member from a shop (salon owners only).
+        
+        **Restrictions:**
+        - Cannot delete if staff has pending or confirmed bookings
+        - Reassign all active bookings to other staff first using `/bookings/{id}/reassign_staff/`
+        - Then the staff member can be deleted
+        """,
         responses={
             204: OpenApiResponse(description="Staff member deleted successfully"),
+            400: OpenApiResponse(description="Bad Request - Has active bookings that need reassignment"),
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Staff member not found")
         },
         tags=['Staff - Client']
     )
     def destroy(self, request, *args, **kwargs):
+        staff_member = self.get_object()
+        
+        # Check for active bookings assigned to this staff
+        from apps.bookings.models import Booking
+        active_bookings = Booking.objects.filter(
+            staff_member=staff_member,
+            status__in=['pending', 'confirmed']
+        ).order_by('booking_datetime')
+        
+        active_count = active_bookings.count()
+        if active_count > 0:
+            # Get booking details for error message
+            booking_details = []
+            for booking in active_bookings[:5]:  # Show first 5
+                booking_details.append({
+                    'id': str(booking.id),
+                    'datetime': booking.booking_datetime.isoformat(),
+                    'service': booking.service.name,
+                    'customer': booking.customer.user.full_name if booking.customer else 'Unknown'
+                })
+            
+            return Response(
+                {
+                    'error': 'Cannot delete staff member with active bookings',
+                    'active_bookings_count': active_count,
+                    'message': f'{staff_member.name} has {active_count} pending/confirmed booking(s). Reassign them to other staff first using /bookings/{{id}}/reassign_staff/',
+                    'action_required': 'Use POST /api/v1/bookings/{booking_id}/reassign_staff/ to reassign each booking',
+                    'bookings_to_reassign': booking_details,
+                    'showing_first': min(5, active_count)
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         return super().destroy(request, *args, **kwargs)
     
     @extend_schema(

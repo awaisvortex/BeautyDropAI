@@ -154,15 +154,49 @@ class ServiceViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Delete service",
-        description="Delete a service (salon owners only)",
+        description="""
+        Delete a service (salon owners only).
+        
+        **Restrictions:**
+        - Cannot delete if there are pending or confirmed bookings for this service
+        - Complete or cancel active bookings first, then delete
+        """,
         responses={
             204: OpenApiResponse(description="Service deleted successfully"),
+            400: OpenApiResponse(description="Bad Request - Has active bookings"),
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Service not found")
         },
         tags=['Services - Client']
     )
     def destroy(self, request, *args, **kwargs):
+        service = self.get_object()
+        
+        # Check for active bookings (pending or confirmed)
+        from apps.bookings.models import Booking
+        active_bookings = Booking.objects.filter(
+            service=service,
+            status__in=['pending', 'confirmed']
+        )
+        
+        active_count = active_bookings.count()
+        if active_count > 0:
+            # Get upcoming booking details
+            upcoming = active_bookings.order_by('booking_datetime').first()
+            return Response(
+                {
+                    'error': 'Cannot delete service with active bookings',
+                    'active_bookings_count': active_count,
+                    'message': f'There are {active_count} pending/confirmed booking(s) for this service. Complete or cancel them first.',
+                    'next_booking': {
+                        'id': str(upcoming.id),
+                        'datetime': upcoming.booking_datetime.isoformat(),
+                        'customer': upcoming.customer.user.full_name if upcoming.customer else 'Unknown'
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         return super().destroy(request, *args, **kwargs)
     
     @extend_schema(
