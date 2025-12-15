@@ -8,7 +8,7 @@ license = "MIT"
 packages = [{include = "apps"}, {include = "config"}]
 
 [tool.poetry.dependencies]
-python = "^3.13.7"
+python = "^3.12"
 
 # Django Core
 django = "^5.0.1"

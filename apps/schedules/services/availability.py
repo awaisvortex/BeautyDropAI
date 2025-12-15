@@ -151,6 +151,10 @@ class AvailabilityService:
             - available_staff_ids: List of staff UUIDs who can take this slot
             - available_staff_count: Number of available staff
         """
+        # Step 0: Check if this is a holiday
+        if self._is_holiday():
+            return []  # Shop closed for holiday
+        
         # Step 1: Get shop schedule for target date
         schedule = self._get_shop_schedule()
         if schedule is None or not schedule.is_active:
@@ -460,5 +464,21 @@ class AvailabilityService:
     
     def is_shop_open(self) -> bool:
         """Check if the shop is open on the target date."""
+        # Check for holiday first
+        if self._is_holiday():
+            return False
         schedule = self._get_shop_schedule()
         return schedule is not None and schedule.is_active
+    
+    def _is_holiday(self) -> bool:
+        """
+        Check if the target date is a holiday for this shop.
+        
+        Returns:
+            True if the date is a holiday, False otherwise
+        """
+        from apps.schedules.models import Holiday
+        return Holiday.objects.filter(
+            shop=self.shop,
+            date=self.target_date
+        ).exists()
