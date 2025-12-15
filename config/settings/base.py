@@ -39,6 +39,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
     'drf_spectacular',
+    'django_celery_beat',
+    'django_celery_results',
     
     # Local apps
     'apps.core',
@@ -252,14 +254,14 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
-# Email Configuration
-EMAIL_BACKEND = env('EMAIL_BACKEND')
-EMAIL_HOST = env('EMAIL_HOST')
-EMAIL_PORT = env.int('EMAIL_PORT')
+# Email Configuration - Mailgun SMTP
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = env('EMAIL_HOST', default='smtp.mailgun.org')
+EMAIL_PORT = env.int('EMAIL_PORT', default=587)
 EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
 EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='BeautyDrop <noreply@beautydrop.ai>')
 
 # Logging Configuration
 LOGGING = {
