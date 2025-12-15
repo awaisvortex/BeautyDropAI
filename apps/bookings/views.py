@@ -17,7 +17,11 @@ from .serializers import (
     BookingSerializer,
     BookingListSerializer,
     BookingStatsSerializer,
-    DynamicBookingCreateSerializer
+    DynamicBookingCreateSerializer,
+    OwnerRescheduleSerializer,
+    StaffReassignSerializer,
+    StaffReassignResponseSerializer,
+    OwnerRescheduleResponseSerializer
 )
 
 
@@ -212,20 +216,38 @@ class BookingViewSet(viewsets.GenericViewSet,
                 )
             # Otherwise, shop is closed or all slots are booked
             return Response(
-                {'error': 'This time slot is not available. Please check available slots first.'},
+                {'error': 'No available slots on this date. The shop may be closed or fully booked.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        
+        # Convert booking_datetime to shop's timezone for accurate comparison
+        # AvailabilityService returns slots in shop's timezone
+        import pytz
+        try:
+            shop_tz = pytz.timezone(service.shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
+        
+        booking_datetime_shop_tz = booking_datetime.astimezone(shop_tz)
         
         # Find the slot that matches the requested time
         matching_slot = None
         for slot in available_slots:
-            if slot.start_time == booking_datetime:
+            # Both should now be in shop timezone for comparison
+            slot_time_normalized = slot.start_time.astimezone(shop_tz)
+            if slot_time_normalized == booking_datetime_shop_tz:
                 matching_slot = slot
                 break
         
         if not matching_slot:
+            # Provide helpful debug info
+            available_times = [s.start_time.astimezone(shop_tz).strftime('%H:%M') for s in available_slots[:5]]
             return Response(
-                {'error': 'This time slot is not available. Please check available slots first.'},
+                {
+                    'error': 'This time slot is not available. Please check available slots first.',
+                    'requested_time': booking_datetime_shop_tz.strftime('%Y-%m-%d %H:%M %Z'),
+                    'sample_available_times': available_times
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -503,11 +525,292 @@ class BookingViewSet(viewsets.GenericViewSet,
         
         return Response(stats)
     
+    @extend_schema(
+        summary="Reschedule booking (Owner)",
+        description="""
+        Reschedule a booking to a new date/time.
+        
+        **Validation:**
+        - Date cannot be in the past
+        - Shop must be open on the new date
+        - New time slot must be available
+        - If assigned staff is not available at new time, will auto-reassign to available staff
+        """,
+        request=OwnerRescheduleSerializer,
+        examples=[
+            OpenApiExample(
+                'Reschedule Booking',
+                value={
+                    'date': '2024-12-20',
+                    'start_time': '14:00'
+                },
+                request_only=True
+            )
+        ],
+        responses={
+            200: BookingSerializer,
+            400: OpenApiResponse(description="Bad Request - Slot not available or shop closed"),
+            403: OpenApiResponse(description="Forbidden - Not shop owner"),
+            404: OpenApiResponse(description="Booking not found")
+        },
+        tags=['Bookings - Client']
+    )
+    @action(detail=True, methods=['post'], permission_classes=[IsClient])
+    def reschedule(self, request, pk=None):
+        """Reschedule a booking to a new date/time (shop owner only)."""
+        booking = self.get_object()
+        
+        # Verify shop ownership
+        if booking.shop.client.user != request.user:
+            return Response(
+                {'error': 'You do not own this shop'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Cannot reschedule completed/cancelled bookings
+        if booking.status in ['completed', 'cancelled', 'no_show']:
+            return Response(
+                {'error': f'Cannot reschedule a booking with status: {booking.status}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = OwnerRescheduleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        new_date = serializer.validated_data['date']
+        new_time = serializer.validated_data['start_time']
+        
+        # Use AvailabilityService to validate the new slot
+        from apps.schedules.services.availability import AvailabilityService
+        from datetime import datetime, timedelta
+        import pytz
+        
+        availability_service = AvailabilityService(
+            service_id=booking.service.id,
+            target_date=new_date,
+            buffer_minutes=0  # No buffer for owner rescheduling
+        )
+        
+        # Check if shop is open
+        if not availability_service.is_shop_open():
+            return Response(
+                {'error': 'Shop is closed on this date'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get shop's timezone
+        try:
+            shop_tz = pytz.timezone(booking.shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
+        
+        # Create new booking datetime
+        naive_datetime = datetime.combine(new_date, new_time)
+        new_booking_datetime = shop_tz.localize(naive_datetime)
+        
+        # Get available slots
+        available_slots = availability_service.get_available_slots()
+        
+        if not available_slots:
+            return Response(
+                {'error': 'No available slots on this date'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if requested time is available
+        matching_slot = None
+        for slot in available_slots:
+            slot_time = slot.start_time.astimezone(shop_tz)
+            if slot_time == new_booking_datetime:
+                matching_slot = slot
+                break
+        
+        if not matching_slot:
+            return Response(
+                {'error': 'This time slot is not available'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update booking datetime
+        booking.booking_datetime = new_booking_datetime
+        
+        # If current staff is not available at new time, reassign
+        if booking.staff_member_id and booking.staff_member_id not in matching_slot.available_staff_ids:
+            from apps.staff.models import StaffMember
+            # Try to use primary staff for service
+            from apps.staff.models import StaffService
+            primary = StaffService.objects.filter(
+                service=booking.service,
+                is_primary=True,
+                staff_member_id__in=matching_slot.available_staff_ids
+            ).first()
+            if primary:
+                booking.staff_member = primary.staff_member
+            elif matching_slot.available_staff_ids:
+                booking.staff_member = StaffMember.objects.get(id=matching_slot.available_staff_ids[0])
+        
+        booking.save(update_fields=['booking_datetime', 'staff_member'])
+        
+        return Response(BookingSerializer(booking).data)
+    
+    @extend_schema(
+        summary="Reassign staff (Owner)",
+        description="""
+        Reassign a booking to a different staff member.
+        
+        **Validation:**
+        - Cannot reassign to the same staff member
+        - New staff must be able to provide the service
+        - New staff must be available at the booking time (no clashes)
+        - A staff member must always be assigned (cannot remove without replacement)
+        
+        **Automatic behavior:**
+        - Previous staff's schedule is freed at this time
+        - New staff's schedule is blocked for this booking
+        """,
+        request=StaffReassignSerializer,
+        examples=[
+            OpenApiExample(
+                'Reassign Staff',
+                value={
+                    'staff_member_id': 'b9743cc7-1364-4a32-a3b7-730a02365f00'
+                },
+                request_only=True
+            )
+        ],
+        responses={
+            200: OpenApiResponse(
+                description="Staff reassigned successfully",
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'message': {'type': 'string', 'example': 'Staff reassigned from John to Jane'},
+                        'previous_staff': {'type': 'string', 'example': 'John Doe'},
+                        'new_staff': {'type': 'string', 'example': 'Jane Smith'},
+                        'booking': {'type': 'object'}
+                    }
+                }
+            ),
+            400: OpenApiResponse(description="Bad Request - Same staff, staff unavailable, or cannot provide service"),
+            403: OpenApiResponse(description="Forbidden - Not shop owner"),
+            404: OpenApiResponse(description="Booking or staff not found")
+        },
+        tags=['Bookings - Client']
+    )
+    @action(detail=True, methods=['post'], permission_classes=[IsClient])
+    def reassign_staff(self, request, pk=None):
+        """Reassign a booking to a different staff member (shop owner only)."""
+        booking = self.get_object()
+        
+        # Verify shop ownership
+        if booking.shop.client.user != request.user:
+            return Response(
+                {'error': 'You do not own this shop'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Cannot reassign completed/cancelled bookings
+        if booking.status in ['completed', 'cancelled', 'no_show']:
+            return Response(
+                {'error': f'Cannot reassign staff for a booking with status: {booking.status}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = StaffReassignSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        staff_member_id = serializer.validated_data['staff_member_id']
+        
+        # Check if trying to reassign to the same staff
+        if booking.staff_member and booking.staff_member.id == staff_member_id:
+            return Response(
+                {'error': 'This staff member is already assigned to this booking'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get and validate staff member
+        from apps.staff.models import StaffMember
+        try:
+            new_staff = StaffMember.objects.get(
+                id=staff_member_id,
+                shop=booking.shop,
+                is_active=True
+            )
+        except StaffMember.DoesNotExist:
+            return Response(
+                {'error': 'Staff member not found or not active at this shop'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if staff can provide this service
+        if new_staff.services.exists() and not new_staff.services.filter(id=booking.service.id).exists():
+            return Response(
+                {
+                    'error': 'This staff member cannot provide the booked service',
+                    'staff_name': new_staff.name,
+                    'service_name': booking.service.name,
+                    'assigned_services': list(new_staff.services.values_list('name', flat=True))
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if new staff is available at this booking time (no clashes)
+        from datetime import timedelta
+        booking_end = booking.booking_datetime + timedelta(minutes=booking.service.duration_minutes)
+        
+        conflicting_booking = Booking.objects.filter(
+            staff_member=new_staff,
+            status__in=['pending', 'confirmed'],
+            booking_datetime__lt=booking_end,
+        ).exclude(id=booking.id)
+        
+        # Check for actual time overlap
+        has_conflict = False
+        conflict_details = None
+        for existing_booking in conflicting_booking:
+            existing_end = existing_booking.booking_datetime + timedelta(
+                minutes=existing_booking.service.duration_minutes
+            )
+            if existing_booking.booking_datetime < booking_end and existing_end > booking.booking_datetime:
+                has_conflict = True
+                conflict_details = {
+                    'conflicting_booking_id': str(existing_booking.id),
+                    'conflicting_time': existing_booking.booking_datetime.isoformat(),
+                    'conflicting_service': existing_booking.service.name
+                }
+                break
+        
+        if has_conflict:
+            return Response(
+                {
+                    'error': f'{new_staff.name} already has a booking at this time',
+                    'staff_name': new_staff.name,
+                    'booking_time': booking.booking_datetime.isoformat(),
+                    **conflict_details
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Store old staff info before reassignment
+        old_staff = booking.staff_member
+        old_staff_name = old_staff.name if old_staff else 'Unassigned'
+        
+        # Update booking with new staff
+        booking.staff_member = new_staff
+        booking.save(update_fields=['staff_member'])
+        
+        return Response({
+            'message': f'Staff reassigned from {old_staff_name} to {new_staff.name}',
+            'previous_staff': old_staff_name,
+            'new_staff': new_staff.name,
+            'booking': BookingSerializer(booking).data
+        })
+    
     def get_permissions(self):
         """Set permissions based on action"""
         if self.action in ['my_bookings', 'dynamic_book']:
             return [IsCustomer()]
-        elif self.action in ['shop_bookings', 'today_bookings', 'upcoming_bookings', 'confirm', 'complete', 'no_show', 'stats']:
+        elif self.action in ['shop_bookings', 'today_bookings', 'upcoming_bookings', 'confirm', 'complete', 'no_show', 'stats', 'reschedule', 'reassign_staff']:
             return [IsClient()]
         elif self.action == 'cancel':
             return [IsAuthenticated(), IsBookingOwner()]

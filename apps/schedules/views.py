@@ -1,5 +1,5 @@
 """
-Schedule and TimeSlot views
+Schedule, TimeSlot, and Holiday views
 """
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
@@ -10,7 +10,7 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 
 from apps.core.permissions import IsClient, IsShopOwner
-from .models import ShopSchedule, TimeSlot
+from .models import ShopSchedule, TimeSlot, Holiday
 from .serializers import (
     ShopScheduleSerializer,
     BulkScheduleCreateSerializer,
@@ -21,7 +21,12 @@ from .serializers import (
     TimeSlotBlockSerializer,
     DynamicAvailabilityRequestSerializer,
     DynamicAvailabilityResponseSerializer,
-    AvailableSlotSerializer
+    AvailableSlotSerializer,
+    HolidaySerializer,
+    HolidayCreateSerializer,
+    HolidayBulkResponseSerializer,
+    HolidayDeleteSerializer,
+    HolidayDeleteResponseSerializer
 )
 from .services.availability import AvailabilityService
 
@@ -68,7 +73,8 @@ class ShopScheduleViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
         description="""
         Set shop hours for multiple days at once.
         
-        Example: Set Monday-Friday 9AM-6PM in one call.
+        Select any days you want - they don't need to be sequential.
+        Example: Set Monday, Wednesday, Friday 9AM-6PM in one call.
         Existing schedules for those days will be updated automatically.
         """,
         request=BulkScheduleCreateSerializer,
@@ -100,8 +106,8 @@ class ShopScheduleViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Get days in range
-        days = serializer.get_days_in_range()
+        # Get selected days
+        days = serializer.get_days()
         
         created_count = 0
         updated_count = 0
@@ -262,10 +268,20 @@ class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
         
         if created:
             print(f"DEBUG: Auto-created schedule for {day_name}")
-            
-        # Create the slot
-        current_time = datetime.combine(target_date, start_time_req)
-        end_time_dt = datetime.combine(target_date, end_time_req)
+        
+        # Get shop's timezone for proper localization
+        import pytz
+        try:
+            shop_tz = pytz.timezone(shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
+        
+        # Create the slot with localized datetime
+        current_time_naive = datetime.combine(target_date, start_time_req)
+        end_time_naive = datetime.combine(target_date, end_time_req)
+        
+        current_time = shop_tz.localize(current_time_naive)
+        end_time_dt = shop_tz.localize(end_time_naive)
         
         # Check for existing slots at the exact same time
         # Allow multiple slots for the same time period, limited by the number of active staff
@@ -527,5 +543,178 @@ class TimeSlotViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
         elif self.action in ['block', 'unblock']:
             return [IsClient(), IsShopOwner()]
         elif self.action == 'generate':
+            return [IsClient()]
+        return super().get_permissions()
+
+
+class HolidayViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
+    """
+    ViewSet for managing shop holidays.
+    
+    Holidays are dates when the shop is closed and no bookings are available.
+    Use bulk_create to add multiple holidays at once.
+    Use bulk_delete to remove holidays.
+    """
+    queryset = Holiday.objects.select_related('shop__client__user')
+    serializer_class = HolidaySerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by shop if provided
+        shop_id = self.request.query_params.get('shop_id')
+        if shop_id:
+            queryset = queryset.filter(shop_id=shop_id)
+        
+        # Filter by date range if provided
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        if start_date:
+            queryset = queryset.filter(date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(date__lte=end_date)
+        
+        # Clients see only their holidays
+        if self.request.user.is_authenticated and self.request.user.role == 'client':
+            queryset = queryset.filter(shop__client__user=self.request.user)
+        
+        return queryset.order_by('date')
+    
+    @extend_schema(
+        summary="List holidays",
+        description="Get holidays for a shop. Filter by shop_id and optional date range.",
+        parameters=[
+            OpenApiParameter('shop_id', OpenApiTypes.UUID, description='Filter by shop ID (required for non-owners)'),
+            OpenApiParameter('start_date', str, description='Filter holidays on or after this date (YYYY-MM-DD)'),
+            OpenApiParameter('end_date', str, description='Filter holidays on or before this date (YYYY-MM-DD)'),
+        ],
+        responses={200: HolidaySerializer(many=True)},
+        tags=['Holidays - Client']
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="Add holidays (bulk create)",
+        description="""
+        Mark dates as holidays for a shop.
+        
+        Supports two input formats:
+        - **dates**: List of specific dates (e.g., ['2024-12-25', '2024-12-26'])
+        - **start_date + end_date**: Date range (inclusive)
+        
+        Holidays block all bookings on those dates.
+        Existing holidays for the same dates are skipped (not duplicated).
+        """,
+        request=HolidayCreateSerializer,
+        responses={
+            200: HolidayBulkResponseSerializer,
+            400: OpenApiResponse(description="Bad Request"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Shop not found")
+        },
+        tags=['Holidays - Client']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[IsClient])
+    def bulk_create(self, request):
+        """Create holidays for multiple dates at once."""
+        serializer = HolidayCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        shop_id = serializer.validated_data['shop_id']
+        name = serializer.validated_data.get('name', '')
+        
+        # Verify shop ownership
+        from apps.shops.models import Shop
+        try:
+            shop = Shop.objects.get(id=shop_id, client__user=request.user)
+        except Shop.DoesNotExist:
+            return Response(
+                {'error': 'Shop not found or you do not own this shop'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all dates to create
+        dates = serializer.get_all_dates()
+        
+        created_count = 0
+        skipped_count = 0
+        
+        for date in dates:
+            holiday, created = Holiday.objects.get_or_create(
+                shop=shop,
+                date=date,
+                defaults={'name': name}
+            )
+            if created:
+                created_count += 1
+            else:
+                skipped_count += 1
+        
+        return Response({
+            'message': f'Successfully added {created_count} holidays',
+            'holidays_created': created_count,
+            'holidays_skipped': skipped_count,
+            'dates': [d.isoformat() for d in dates],
+            'shop_id': str(shop_id)
+        })
+    
+    @extend_schema(
+        summary="Remove holidays (bulk delete)",
+        description="""
+        Remove holiday dates for a shop.
+        
+        Supports two input formats:
+        - **dates**: List of specific dates to remove
+        - **start_date + end_date**: Date range to remove (inclusive)
+        """,
+        request=HolidayDeleteSerializer,
+        responses={
+            200: HolidayDeleteResponseSerializer,
+            400: OpenApiResponse(description="Bad Request"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Shop not found")
+        },
+        tags=['Holidays - Client']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[IsClient])
+    def bulk_delete(self, request):
+        """Delete holidays for multiple dates at once."""
+        serializer = HolidayDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        shop_id = serializer.validated_data['shop_id']
+        
+        # Verify shop ownership
+        from apps.shops.models import Shop
+        try:
+            shop = Shop.objects.get(id=shop_id, client__user=request.user)
+        except Shop.DoesNotExist:
+            return Response(
+                {'error': 'Shop not found or you do not own this shop'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all dates to delete
+        dates = serializer.get_all_dates()
+        
+        # Delete holidays
+        deleted_count, _ = Holiday.objects.filter(
+            shop=shop,
+            date__in=dates
+        ).delete()
+        
+        return Response({
+            'message': f'Successfully removed {deleted_count} holidays',
+            'holidays_deleted': deleted_count,
+            'dates': [d.isoformat() for d in dates]
+        })
+    
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action == 'list':
+            return [AllowAny()]
+        elif self.action in ['bulk_create', 'bulk_delete']:
             return [IsClient()]
         return super().get_permissions()

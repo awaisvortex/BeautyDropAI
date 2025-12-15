@@ -77,3 +77,37 @@ class TimeSlot(BaseModel):
     
     def __str__(self):
         return f"{self.start_datetime} - {self.status}"
+
+
+class Holiday(BaseModel):
+    """
+    Holiday/closure date for a shop.
+    
+    When a date is marked as a holiday, the shop is closed and no slots/bookings
+    are available on that date.
+    """
+    shop = models.ForeignKey(
+        'shops.Shop',
+        on_delete=models.CASCADE,
+        related_name='holidays'
+    )
+    
+    date = models.DateField(db_index=True)
+    name = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text='Optional name for the holiday (e.g., Christmas, Eid)'
+    )
+    
+    class Meta:
+        db_table = 'shop_holidays'
+        verbose_name = 'Holiday'
+        verbose_name_plural = 'Holidays'
+        unique_together = ['shop', 'date']
+        ordering = ['date']
+    
+    def __str__(self):
+        if self.name:
+            return f"{self.shop.name} - {self.date} ({self.name})"
+        return f"{self.shop.name} - {self.date}"

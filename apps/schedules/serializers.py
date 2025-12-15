@@ -69,36 +69,28 @@ class BulkScheduleCreateSerializer(serializers.Serializer):
     """
     Serializer for creating schedules for multiple days at once.
     
-    Set shop hours once for a range of days (e.g., Monday-Friday 9AM-6PM).
+    Set shop hours for selected days (e.g., Monday, Wednesday, Friday).
+    Days don't need to be sequential - select any days you want.
     Slot duration is determined by service duration, not fixed intervals.
     """
     shop_id = serializers.UUIDField(
         required=True,
         help_text="UUID of the shop"
     )
-    start_day = serializers.ChoiceField(
-        choices=[
-            ('monday', 'Monday'),
-            ('tuesday', 'Tuesday'),
-            ('wednesday', 'Wednesday'),
-            ('thursday', 'Thursday'),
-            ('friday', 'Friday'),
-            ('saturday', 'Saturday'),
-            ('sunday', 'Sunday'),
-        ],
-        help_text="First day of the week range (e.g., 'monday')"
-    )
-    end_day = serializers.ChoiceField(
-        choices=[
-            ('monday', 'Monday'),
-            ('tuesday', 'Tuesday'),
-            ('wednesday', 'Wednesday'),
-            ('thursday', 'Thursday'),
-            ('friday', 'Friday'),
-            ('saturday', 'Saturday'),
-            ('sunday', 'Sunday'),
-        ],
-        help_text="Last day of the week range (e.g., 'friday')"
+    days = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=[
+                ('monday', 'Monday'),
+                ('tuesday', 'Tuesday'),
+                ('wednesday', 'Wednesday'),
+                ('thursday', 'Thursday'),
+                ('friday', 'Friday'),
+                ('saturday', 'Saturday'),
+                ('sunday', 'Sunday'),
+            ]
+        ),
+        min_length=1,
+        help_text="List of days to set schedule for (e.g., ['monday', 'wednesday', 'friday'])"
     )
     start_time = serializers.TimeField(
         help_text="Opening time (e.g., '09:00')"
@@ -107,28 +99,50 @@ class BulkScheduleCreateSerializer(serializers.Serializer):
         help_text="Closing time (e.g., '18:00')"
     )
     
+    class Meta:
+        # OpenAPI example schema
+        examples = [
+            {
+                "name": "Weekday Schedule",
+                "value": {
+                    "shop_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                    "start_time": "09:00",
+                    "end_time": "18:00"
+                }
+            },
+            {
+                "name": "Weekend Only",
+                "value": {
+                    "shop_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "days": ["saturday", "sunday"],
+                    "start_time": "10:00",
+                    "end_time": "16:00"
+                }
+            },
+            {
+                "name": "Custom Days",
+                "value": {
+                    "shop_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "days": ["monday", "wednesday", "friday"],
+                    "start_time": "08:00",
+                    "end_time": "20:00"
+                }
+            }
+        ]
+    
     def validate(self, data):
         if data['start_time'] >= data['end_time']:
             raise serializers.ValidationError("End time must be after start time")
         
-        # Validate day range
-        days_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-        start_idx = days_order.index(data['start_day'])
-        end_idx = days_order.index(data['end_day'])
-        
-        if start_idx > end_idx:
-            raise serializers.ValidationError(
-                f"Start day ({data['start_day']}) must come before or equal to end day ({data['end_day']})"
-            )
+        # Remove duplicates and validate days
+        data['days'] = list(set(data['days']))
         
         return data
     
-    def get_days_in_range(self):
-        """Get list of days between start_day and end_day inclusive."""
-        days_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-        start_idx = days_order.index(self.validated_data['start_day'])
-        end_idx = days_order.index(self.validated_data['end_day'])
-        return days_order[start_idx:end_idx + 1]
+    def get_days(self):
+        """Get the list of days from validated data."""
+        return self.validated_data['days']
 
 
 class BulkScheduleResponseSerializer(serializers.Serializer):
@@ -364,3 +378,213 @@ class DynamicAvailabilityResponseSerializer(serializers.Serializer):
         help_text="Number of staff members who can perform this service"
     )
 
+
+# ============================================
+# Holiday Serializers
+# ============================================
+
+class HolidaySerializer(serializers.ModelSerializer):
+    """Serializer for Holiday model."""
+    shop_name = serializers.CharField(source='shop.name', read_only=True)
+    
+    class Meta:
+        from .models import Holiday
+        model = Holiday
+        fields = [
+            'id', 'shop', 'shop_name', 'date', 'name',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'shop', 'created_at', 'updated_at']
+
+
+class HolidayCreateSerializer(serializers.Serializer):
+    """
+    Serializer for creating holidays.
+    
+    Supports multiple input formats:
+    - dates: List of individual dates
+    - start_date + end_date: Date range
+    
+    At least one format must be provided.
+    """
+    shop_id = serializers.UUIDField(
+        required=True,
+        help_text="UUID of the shop"
+    )
+    dates = serializers.ListField(
+        child=serializers.DateField(),
+        required=False,
+        min_length=1,
+        help_text="List of dates to mark as holidays (e.g., ['2024-12-25', '2024-12-26'])"
+    )
+    start_date = serializers.DateField(
+        required=False,
+        help_text="Start date for a range (inclusive)"
+    )
+    end_date = serializers.DateField(
+        required=False,
+        help_text="End date for a range (inclusive)"
+    )
+    name = serializers.CharField(
+        max_length=100,
+        required=False,
+        default='',
+        help_text="Optional name for the holiday (e.g., 'Christmas', 'Eid')"
+    )
+    
+    class Meta:
+        # OpenAPI example schemas
+        examples = [
+            {
+                "name": "Multiple Dates",
+                "value": {
+                    "shop_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "dates": ["2024-12-25", "2024-12-26"],
+                    "name": "Christmas Holidays"
+                }
+            },
+            {
+                "name": "Date Range",
+                "value": {
+                    "shop_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "start_date": "2024-12-24",
+                    "end_date": "2024-12-31",
+                    "name": "Winter Break"
+                }
+            },
+            {
+                "name": "Single Date",
+                "value": {
+                    "shop_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "dates": ["2024-01-01"],
+                    "name": "New Year"
+                }
+            }
+        ]
+    
+    def validate(self, data):
+        dates = data.get('dates')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        
+        # Must provide either dates list OR date range
+        has_dates = dates is not None and len(dates) > 0
+        has_range = start_date is not None and end_date is not None
+        
+        if not has_dates and not has_range:
+            raise serializers.ValidationError(
+                "Must provide either 'dates' (list of dates) or both 'start_date' and 'end_date'"
+            )
+        
+        # Validate date range
+        if has_range and start_date > end_date:
+            raise serializers.ValidationError(
+                "start_date must be before or equal to end_date"
+            )
+        
+        return data
+    
+    def get_all_dates(self):
+        """
+        Get list of all dates from either dates list or range.
+        
+        Returns:
+            List of date objects
+        """
+        from datetime import timedelta
+        
+        dates = self.validated_data.get('dates', [])
+        start_date = self.validated_data.get('start_date')
+        end_date = self.validated_data.get('end_date')
+        
+        all_dates = list(dates) if dates else []
+        
+        # Add dates from range
+        if start_date and end_date:
+            current = start_date
+            while current <= end_date:
+                if current not in all_dates:
+                    all_dates.append(current)
+                current += timedelta(days=1)
+        
+        # Remove duplicates and sort
+        return sorted(set(all_dates))
+
+
+class HolidayBulkResponseSerializer(serializers.Serializer):
+    """Response serializer for bulk holiday creation."""
+    message = serializers.CharField()
+    holidays_created = serializers.IntegerField()
+    holidays_skipped = serializers.IntegerField(
+        help_text="Number of dates skipped (already exist)"
+    )
+    dates = serializers.ListField(child=serializers.DateField())
+    shop_id = serializers.UUIDField()
+
+
+class HolidayDeleteSerializer(serializers.Serializer):
+    """Serializer for deleting holidays."""
+    shop_id = serializers.UUIDField(
+        required=True,
+        help_text="UUID of the shop"
+    )
+    dates = serializers.ListField(
+        child=serializers.DateField(),
+        required=False,
+        help_text="List of specific dates to remove as holidays"
+    )
+    start_date = serializers.DateField(
+        required=False,
+        help_text="Start date for a range to delete (inclusive)"
+    )
+    end_date = serializers.DateField(
+        required=False,
+        help_text="End date for a range to delete (inclusive)"
+    )
+    
+    def validate(self, data):
+        dates = data.get('dates')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        
+        # Must provide either dates list OR date range
+        has_dates = dates is not None and len(dates) > 0
+        has_range = start_date is not None and end_date is not None
+        
+        if not has_dates and not has_range:
+            raise serializers.ValidationError(
+                "Must provide either 'dates' (list of dates) or both 'start_date' and 'end_date'"
+            )
+        
+        if has_range and start_date > end_date:
+            raise serializers.ValidationError(
+                "start_date must be before or equal to end_date"
+            )
+        
+        return data
+    
+    def get_all_dates(self):
+        """Get list of all dates to delete."""
+        from datetime import timedelta
+        
+        dates = self.validated_data.get('dates', [])
+        start_date = self.validated_data.get('start_date')
+        end_date = self.validated_data.get('end_date')
+        
+        all_dates = list(dates) if dates else []
+        
+        if start_date and end_date:
+            current = start_date
+            while current <= end_date:
+                if current not in all_dates:
+                    all_dates.append(current)
+                current += timedelta(days=1)
+        
+        return sorted(set(all_dates))
+
+
+class HolidayDeleteResponseSerializer(serializers.Serializer):
+    """Response serializer for holiday deletion."""
+    message = serializers.CharField()
+    holidays_deleted = serializers.IntegerField()
+    dates = serializers.ListField(child=serializers.DateField())
