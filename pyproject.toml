@@ -34,6 +34,9 @@ clerk-backend-api = "^1.2.5"
 # Stripe Payment
 stripe = "^8.0.0"
 
+# Email - Mailgun
+django-anymail = {extras = ["mailgun"], version = "^13.1"}
+
 # Google Calendar Integration
 google-api-python-client = "^2.100.0"
 google-auth = "^2.23.0"

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking Rescheduled</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 32px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 24px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #8B5CF6;
+        }
+        .reschedule-icon {
+            font-size: 48px;
+            margin: 16px 0;
+        }
+        h1 {
+            color: #1a1a1a;
+            font-size: 24px;
+            margin: 0;
+        }
+        .time-change {
+            background-color: #DBEAFE;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 24px 0;
+            text-align: center;
+        }
+        .time-value {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 8px 0;
+        }
+        .old-time {
+            color: #666;
+            text-decoration: line-through;
+        }
+        .new-time {
+            color: #059669;
+        }
+        .arrow {
+            font-size: 24px;
+            color: #8B5CF6;
+            margin: 10px 0;
+        }
+        .booking-details {
+            background-color: #f8f5ff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 24px 0;
+        }
+        .detail-row {
+            padding: 8px 0;
+            border-bottom: 1px solid #e8e0f7;
+        }
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        .detail-label {
+            color: #666;
+            font-size: 14px;
+        }
+        .detail-value {
+            font-weight: 600;
+            color: #333;
+        }
+        .shop-info {
+            background-color: #f0f0f0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+        .footer {
+            text-align: center;
+            padding-top: 24px;
+            border-top: 1px solid #eee;
+            margin-top: 24px;
+            color: #888;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">✨ BeautyDrop</div>
+            <div class="reschedule-icon">🔄</div>
+            <h1>Booking Rescheduled</h1>
+        </div>
+        
+        <p>Hi {{ recipient_name }},</p>
+        
+        {% if is_customer %}
+        <p>Your booking at <strong>{{ shop_name }}</strong> has been rescheduled.</p>
+        {% elif is_staff %}
+        <p>An appointment has been rescheduled.</p>
+        {% elif is_owner %}
+        <p>A booking at your shop has been rescheduled.</p>
+        {% endif %}
+        
+        <div class="time-change">
+            <div class="time-value old-time">{{ old_datetime|date:"M j, Y" }} at {{ old_datetime|time:"g:i A" }}</div>
+            <div class="arrow">↓</div>
+            <div class="time-value new-time">{{ booking_datetime|date:"M j, Y" }} at {{ booking_datetime|time:"g:i A" }}</div>
+        </div>
+        
+        <div class="booking-details">
+            <div class="detail-row">
+                <span class="detail-label">📅 New Date & Time</span><br>
+                <span class="detail-value">{{ booking_datetime|date:"l, F j, Y" }} at {{ booking_datetime|time:"g:i A" }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">💇 Service</span><br>
+                <span class="detail-value">{{ service_name }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">👤 Staff</span><br>
+                <span class="detail-value">{{ staff_name }}</span>
+            </div>
+            {% if is_staff or is_owner %}
+            <div class="detail-row">
+                <span class="detail-label">👤 Customer</span><br>
+                <span class="detail-value">{{ customer_name }}</span>
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="shop-info">
+            <strong>📍 {{ shop_name }}</strong><br>
+            {{ shop_address }}<br>
+            📞 {{ shop_phone }}
+        </div>
+        
+        <div class="footer">
+            <p>This email was sent by BeautyDrop</p>
+            <p>© {{ current_year }} BeautyDrop. All rights reserved.</p>
+            <p><a href="#">Unsubscribe</a> | <a href="#">Manage Preferences</a></p>
+        </div>
+    </div>
+</body>
+</html>
