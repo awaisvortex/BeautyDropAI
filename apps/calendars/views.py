@@ -15,7 +15,6 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResp
 
 from .models import CalendarIntegration, CalendarEvent
 from .serializers import (
-    GoogleConnectSerializer,
     CalendarIntegrationSerializer,
     CalendarSettingsSerializer,
     GoogleCalendarListSerializer,
@@ -31,14 +30,15 @@ logger = logging.getLogger(__name__)
 @extend_schema_view(
     google_connect=extend_schema(
         summary="Connect Google Calendar",
-        description="Receive Google OAuth tokens from Clerk frontend and store them for calendar sync.",
-        request=GoogleConnectSerializer,
+        description="Connect Google Calendar using OAuth tokens fetched automatically from Clerk. User must have signed in with Google via Clerk SSO with calendar permissions.",
+        request=None,
         responses={
             200: CalendarIntegrationSerializer,
             400: ErrorResponseSerializer,
         },
         tags=['Calendars']
     ),
+
     google_disconnect=extend_schema(
         summary="Disconnect Google Calendar",
         description="Remove Google Calendar integration and stop syncing bookings.",
@@ -94,38 +94,66 @@ class CalendarViewSet(ViewSet):
     @action(detail=False, methods=['post'], url_path='google/connect')
     def google_connect(self, request):
         """
-        Receive Google OAuth tokens from Clerk frontend.
-        Frontend gets tokens via Clerk's getOAuthAccessToken("google")
+        Connect Google Calendar by fetching OAuth token from Clerk.
+        User must have connected Google via Clerk SSO with calendar scope.
         """
-        serializer = GoogleConnectSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        from apps.authentication.services.clerk_service import clerk_service
         
-        access_token = serializer.validated_data['access_token']
-        refresh_token = serializer.validated_data.get('refresh_token', '')
-        expires_at = serializer.validated_data.get('expires_at')
+        # Get Google OAuth token from Clerk
+        token_data = clerk_service.get_google_oauth_token(request.user.clerk_user_id)
         
-        # Verify token is valid
-        calendar_service = GoogleCalendarService(access_token, refresh_token)
+        logger.info(f"Clerk token response for {request.user.email}: {token_data}")
+        
+        if not token_data or not token_data.get('token'):
+            return Response(
+                {
+                    'error': 'Google account not connected in Clerk. Please connect Google in your account settings.',
+                    'hint': 'Ensure you signed in with Google and granted calendar permissions.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        access_token = token_data['token']
+        scopes = token_data.get('scopes', [])
+        
+        logger.info(f"Token scopes for {request.user.email}: {scopes}")
+        
+        # Check if calendar scope is present
+        calendar_scope = 'https://www.googleapis.com/auth/calendar.events'
+        if calendar_scope not in scopes:
+            return Response(
+                {
+                    'error': 'Calendar permissions not granted. Please sign out and sign in again with Google.',
+                    'hint': f'Current scopes: {scopes}. Required: {calendar_scope}',
+                    'action': 'User must log out and log back in with Google to get the new calendar scope.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify token works with Google Calendar API
+        calendar_service = GoogleCalendarService(access_token)
         if not calendar_service.verify_token():
             return Response(
-                {'error': 'Invalid Google OAuth token'},
+                {
+                    'error': 'Google Calendar API verification failed.',
+                    'hint': 'Token has correct scopes but API call failed. Check server logs for details.'
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         # Create or update integration
+        # Note: We don't store the token since Clerk manages refresh automatically
+        # We'll fetch fresh tokens from Clerk each time we need to sync
         integration, created = CalendarIntegration.objects.update_or_create(
             user=request.user,
             defaults={
                 'google_access_token': access_token,
-                'google_refresh_token': refresh_token,
-                'google_token_expires_at': (
-                    datetime.fromtimestamp(expires_at, tz=timezone.utc)
-                    if expires_at else None
-                ),
+                'google_refresh_token': '',  # Clerk manages refresh
+                'google_token_expires_at': None,  # Clerk manages expiry
             }
         )
         
-        logger.info(f"User {request.user.email} connected Google Calendar")
+        logger.info(f"User {request.user.email} connected Google Calendar via Clerk")
         
         return Response(
             CalendarIntegrationSerializer(integration).data,
@@ -232,6 +260,8 @@ class CalendarViewSet(ViewSet):
         List available Google Calendars for the user.
         Allows them to select which calendar to sync to.
         """
+        from apps.authentication.services.clerk_service import clerk_service
+        
         try:
             integration = CalendarIntegration.objects.get(user=request.user)
             
@@ -241,10 +271,15 @@ class CalendarViewSet(ViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            calendar_service = GoogleCalendarService(
-                integration.google_access_token,
-                integration.google_refresh_token
-            )
+            # Fetch fresh token from Clerk
+            token_data = clerk_service.get_google_oauth_token(request.user.clerk_user_id)
+            if not token_data or not token_data.get('token'):
+                return Response(
+                    {'error': 'Could not retrieve Google token. Please reconnect.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            calendar_service = GoogleCalendarService(token_data['token'])
             
             calendars = calendar_service.list_calendars()
             

@@ -230,6 +230,10 @@ STRIPE_WEBHOOK_SECRET = env('STRIPE_WEBHOOK_SECRET')
 # Frontend URLs for subscription redirects
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
 
+# Google Calendar Configuration (OAuth 2.0)
+GOOGLE_CALENDAR_CLIENT_ID = env('GOOGLE_CALENDAR_CLIENT_ID', default='')
+GOOGLE_CALENDAR_CLIENT_SECRET = env('GOOGLE_CALENDAR_CLIENT_SECRET', default='')
+
 # Redis Configuration
 REDIS_URL = env('REDIS_URL')
 CACHES = {
