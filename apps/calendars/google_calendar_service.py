@@ -52,27 +52,21 @@ class GoogleCalendarService:
     
     def list_calendars(self) -> List[Dict[str, Any]]:
         """
-        List all calendars available to the user.
+        List calendars available to the user.
+        With calendar.events scope, we can only access the primary calendar.
         
         Returns:
             List of calendars with id, summary, and primary flag
         """
-        try:
-            service = self._build_service()
-            calendar_list = service.calendarList().list().execute()
-            
-            calendars = []
-            for calendar in calendar_list.get('items', []):
-                calendars.append({
-                    'id': calendar['id'],
-                    'summary': calendar.get('summary', 'Untitled'),
-                    'primary': calendar.get('primary', False)
-                })
-            
-            return calendars
-        except HttpError as e:
-            logger.error(f"Failed to list calendars: {e}")
-            raise
+        # With calendar.events scope, we can only work with primary calendar
+        # To list all calendars, calendar.readonly scope is needed
+        return [
+            {
+                'id': 'primary',
+                'summary': 'Primary Calendar',
+                'primary': True
+            }
+        ]
     
     def create_booking_event(
         self,
@@ -240,15 +234,20 @@ class GoogleCalendarService:
     def verify_token(self) -> bool:
         """
         Verify that the access token is valid by making a simple API call.
+        Uses events().list() which works with calendar.events scope.
         
         Returns:
             True if token is valid, False otherwise
         """
         try:
             service = self._build_service()
-            # Simple call to verify authentication
-            service.calendarList().list(maxResults=1).execute()
+            # Use events list on primary calendar - works with calendar.events scope
+            service.events().list(
+                calendarId='primary',
+                maxResults=1
+            ).execute()
             return True
         except HttpError as e:
             logger.error(f"Token verification failed: {e}")
             return False
+

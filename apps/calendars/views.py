@@ -241,7 +241,7 @@ class CalendarViewSet(ViewSet):
                 )
             
             # Queue async task to sync all bookings
-            sync_all_bookings_task.delay(str(request.user.id))
+            sync_all_bookings_task.delay(request.user.clerk_user_id)
             
             return Response(
                 {'message': 'Sync started. Bookings will be synced in the background.'},
