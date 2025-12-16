@@ -24,11 +24,17 @@ def get_booking_description(booking, user_role: str) -> str:
         if booking.staff_member:
             lines.append(f"Staff: {booking.staff_member.name}")
     elif user_role == 'staff':
-        if booking.customer and booking.customer.user:
-            lines.append(f"Customer: {booking.customer.user.full_name}")
+        if booking.customer:
+            if booking.customer.user:
+                lines.append(f"Customer: {booking.customer.user.full_name or booking.customer.user.email}")
+            else:
+                lines.append("Customer: (Unknown)")
     elif user_role == 'client':
-        if booking.customer and booking.customer.user:
-            lines.append(f"Customer: {booking.customer.user.full_name}")
+        if booking.customer:
+            if booking.customer.user:
+                lines.append(f"Customer: {booking.customer.user.full_name or booking.customer.user.email}")
+            else:
+                lines.append("Customer: (Unknown)")
         if booking.staff_member:
             lines.append(f"Staff: {booking.staff_member.name}")
     

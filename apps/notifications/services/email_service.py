@@ -22,6 +22,79 @@ from apps.notifications.models import (
 logger = logging.getLogger(__name__)
 
 
+# --- Null-Safe Helper Functions ---
+
+def get_customer_email(booking) -> Optional[str]:
+    """Get customer email safely, handling null customer or user."""
+    if booking.customer and booking.customer.user:
+        return booking.customer.user.email
+    return None
+
+
+def get_customer_name(booking) -> str:
+    """Get customer name safely, handling null customer or user."""
+    if booking.customer:
+        if booking.customer.user:
+            return booking.customer.user.full_name or booking.customer.user.email
+        # Fallback to customer email if user not linked
+        if hasattr(booking.customer, 'email') and booking.customer.email:
+            return booking.customer.email
+    return 'Customer'
+
+
+def get_customer_user(booking):
+    """Get customer's user safely, may return None."""
+    if booking.customer:
+        return booking.customer.user
+    return None
+
+
+def get_staff_email(staff_member) -> Optional[str]:
+    """Get staff email safely, preferring user email over staff email."""
+    if staff_member:
+        if staff_member.user and staff_member.user.email:
+            return staff_member.user.email
+        return staff_member.email
+    return None
+
+
+def get_staff_name(staff_member) -> str:
+    """Get staff name safely, handling null user."""
+    if staff_member:
+        if staff_member.user:
+            return staff_member.user.full_name or staff_member.name
+        return staff_member.name
+    return 'Staff Member'
+
+
+def get_staff_user(staff_member):
+    """Get staff's user safely, may return None."""
+    if staff_member:
+        return staff_member.user
+    return None
+
+
+def get_client_email(shop) -> Optional[str]:
+    """Get shop owner email safely."""
+    if shop and hasattr(shop, 'client') and shop.client and shop.client.user:
+        return shop.client.user.email
+    return None
+
+
+def get_client_name(shop) -> str:
+    """Get shop owner name safely."""
+    if shop and hasattr(shop, 'client') and shop.client and shop.client.user:
+        return shop.client.user.full_name or shop.client.user.email
+    return 'Shop Owner'
+
+
+def get_client_user(shop):
+    """Get shop owner's user safely, may return None."""
+    if shop and hasattr(shop, 'client') and shop.client:
+        return shop.client.user
+    return None
+
+
 class EmailNotificationService:
     """
     Service class for sending email notifications.
@@ -227,39 +300,43 @@ class EmailNotificationService:
         context = cls._build_booking_context(booking)
         
         # Send to customer
-        customer_log = cls.send_email(
-            recipient_email=booking.customer.user.email,
-            recipient_name=booking.customer.user.full_name,
-            notification_type=NotificationType.BOOKING_CONFIRMATION,
-            context={**context, 'is_customer': True},
-            booking=booking,
-            user=booking.customer.user
-        )
-        if customer_log:
-            logs.append(customer_log)
+        customer_email = get_customer_email(booking)
+        if customer_email:
+            customer_log = cls.send_email(
+                recipient_email=customer_email,
+                recipient_name=get_customer_name(booking),
+                notification_type=NotificationType.BOOKING_CONFIRMATION,
+                context={**context, 'is_customer': True},
+                booking=booking,
+                user=get_customer_user(booking)
+            )
+            if customer_log:
+                logs.append(customer_log)
         
         # Send to staff member
-        if booking.staff_member and booking.staff_member.user.email:
+        staff_email = get_staff_email(booking.staff_member)
+        if staff_email:
             staff_log = cls.send_email(
-                recipient_email=booking.staff_member.user.email,
-                recipient_name=booking.staff_member.user.full_name,
+                recipient_email=staff_email,
+                recipient_name=get_staff_name(booking.staff_member),
                 notification_type=NotificationType.BOOKING_CONFIRMATION,
                 context={**context, 'is_staff': True},
                 booking=booking,
-                user=booking.staff_member.user
+                user=get_staff_user(booking.staff_member)
             )
             if staff_log:
                 logs.append(staff_log)
         
         # Send to shop owner
-        if booking.shop.client.user.email:
+        client_email = get_client_email(booking.shop)
+        if client_email:
             owner_log = cls.send_email(
-                recipient_email=booking.shop.client.user.email,
-                recipient_name=booking.shop.client.user.full_name,
+                recipient_email=client_email,
+                recipient_name=get_client_name(booking.shop),
                 notification_type=NotificationType.BOOKING_CONFIRMATION,
                 context={**context, 'is_owner': True},
                 booking=booking,
-                user=booking.shop.client.user
+                user=get_client_user(booking.shop)
             )
             if owner_log:
                 logs.append(owner_log)
@@ -285,42 +362,47 @@ class EmailNotificationService:
         
         # Send to customer (if shop cancelled)
         if cancelled_by != 'customer':
-            customer_log = cls.send_email(
-                recipient_email=booking.customer.user.email,
-                recipient_name=booking.customer.user.full_name,
-                notification_type=NotificationType.BOOKING_CANCELLATION,
-                context={**context, 'is_customer': True},
-                booking=booking,
-                user=booking.customer.user
-            )
-            if customer_log:
-                logs.append(customer_log)
+            customer_email = get_customer_email(booking)
+            if customer_email:
+                customer_log = cls.send_email(
+                    recipient_email=customer_email,
+                    recipient_name=get_customer_name(booking),
+                    notification_type=NotificationType.BOOKING_CANCELLATION,
+                    context={**context, 'is_customer': True},
+                    booking=booking,
+                    user=get_customer_user(booking)
+                )
+                if customer_log:
+                    logs.append(customer_log)
         
         # Send to staff member
-        if booking.staff_member and booking.staff_member.user.email:
+        staff_email = get_staff_email(booking.staff_member)
+        if staff_email:
             staff_log = cls.send_email(
-                recipient_email=booking.staff_member.user.email,
-                recipient_name=booking.staff_member.user.full_name,
+                recipient_email=staff_email,
+                recipient_name=get_staff_name(booking.staff_member),
                 notification_type=NotificationType.BOOKING_CANCELLATION,
                 context={**context, 'is_staff': True},
                 booking=booking,
-                user=booking.staff_member.user
+                user=get_staff_user(booking.staff_member)
             )
             if staff_log:
                 logs.append(staff_log)
         
         # Send to shop owner (if customer cancelled)
-        if cancelled_by == 'customer' and booking.shop.client.user.email:
-            owner_log = cls.send_email(
-                recipient_email=booking.shop.client.user.email,
-                recipient_name=booking.shop.client.user.full_name,
-                notification_type=NotificationType.BOOKING_CANCELLATION,
-                context={**context, 'is_owner': True},
-                booking=booking,
-                user=booking.shop.client.user
-            )
-            if owner_log:
-                logs.append(owner_log)
+        if cancelled_by == 'customer':
+            client_email = get_client_email(booking.shop)
+            if client_email:
+                owner_log = cls.send_email(
+                    recipient_email=client_email,
+                    recipient_name=get_client_name(booking.shop),
+                    notification_type=NotificationType.BOOKING_CANCELLATION,
+                    context={**context, 'is_owner': True},
+                    booking=booking,
+                    user=get_client_user(booking.shop)
+                )
+                if owner_log:
+                    logs.append(owner_log)
         
         return logs
     
@@ -351,26 +433,29 @@ class EmailNotificationService:
         context['is_1day'] = reminder_type == NotificationType.BOOKING_REMINDER_1DAY
         
         # Send to customer
-        customer_log = cls.send_email(
-            recipient_email=booking.customer.user.email,
-            recipient_name=booking.customer.user.full_name,
-            notification_type=reminder_type,
-            context={**context, 'is_customer': True},
-            booking=booking,
-            user=booking.customer.user
-        )
-        if customer_log:
-            logs.append(customer_log)
+        customer_email = get_customer_email(booking)
+        if customer_email:
+            customer_log = cls.send_email(
+                recipient_email=customer_email,
+                recipient_name=get_customer_name(booking),
+                notification_type=reminder_type,
+                context={**context, 'is_customer': True},
+                booking=booking,
+                user=get_customer_user(booking)
+            )
+            if customer_log:
+                logs.append(customer_log)
         
         # Send to staff member
-        if booking.staff_member and booking.staff_member.user.email:
+        staff_email = get_staff_email(booking.staff_member)
+        if staff_email:
             staff_log = cls.send_email(
-                recipient_email=booking.staff_member.user.email,
-                recipient_name=booking.staff_member.user.full_name,
+                recipient_email=staff_email,
+                recipient_name=get_staff_name(booking.staff_member),
                 notification_type=reminder_type,
                 context={**context, 'is_staff': True},
                 booking=booking,
-                user=booking.staff_member.user
+                user=get_staff_user(booking.staff_member)
             )
             if staff_log:
                 logs.append(staff_log)
@@ -397,43 +482,47 @@ class EmailNotificationService:
         """
         logs = []
         context = cls._build_booking_context(booking)
-        context['old_staff_name'] = old_staff.user.full_name if old_staff else 'Not assigned'
-        context['new_staff_name'] = new_staff.user.full_name if new_staff else 'Not assigned'
+        context['old_staff_name'] = get_staff_name(old_staff) if old_staff else 'Not assigned'
+        context['new_staff_name'] = get_staff_name(new_staff) if new_staff else 'Not assigned'
         
         # Send to customer
-        customer_log = cls.send_email(
-            recipient_email=booking.customer.user.email,
-            recipient_name=booking.customer.user.full_name,
-            notification_type=NotificationType.STAFF_ASSIGNMENT,
-            context={**context, 'is_customer': True},
-            booking=booking,
-            user=booking.customer.user
-        )
-        if customer_log:
-            logs.append(customer_log)
+        customer_email = get_customer_email(booking)
+        if customer_email:
+            customer_log = cls.send_email(
+                recipient_email=customer_email,
+                recipient_name=get_customer_name(booking),
+                notification_type=NotificationType.STAFF_ASSIGNMENT,
+                context={**context, 'is_customer': True},
+                booking=booking,
+                user=get_customer_user(booking)
+            )
+            if customer_log:
+                logs.append(customer_log)
         
         # Send to new staff
-        if new_staff and new_staff.user.email:
+        new_staff_email = get_staff_email(new_staff)
+        if new_staff_email:
             new_staff_log = cls.send_email(
-                recipient_email=new_staff.user.email,
-                recipient_name=new_staff.user.full_name,
+                recipient_email=new_staff_email,
+                recipient_name=get_staff_name(new_staff),
                 notification_type=NotificationType.STAFF_ASSIGNMENT,
                 context={**context, 'is_new_staff': True},
                 booking=booking,
-                user=new_staff.user
+                user=get_staff_user(new_staff)
             )
             if new_staff_log:
                 logs.append(new_staff_log)
         
         # Send to old staff (letting them know they're no longer assigned)
-        if old_staff and old_staff.user.email:
+        old_staff_email = get_staff_email(old_staff)
+        if old_staff_email:
             old_staff_log = cls.send_email(
-                recipient_email=old_staff.user.email,
-                recipient_name=old_staff.user.full_name,
+                recipient_email=old_staff_email,
+                recipient_name=get_staff_name(old_staff),
                 notification_type=NotificationType.STAFF_ASSIGNMENT,
                 context={**context, 'is_old_staff': True},
                 booking=booking,
-                user=old_staff.user
+                user=get_staff_user(old_staff)
             )
             if old_staff_log:
                 logs.append(old_staff_log)
@@ -469,11 +558,11 @@ class EmailNotificationService:
         notified_emails = set()
         
         for booking in affected_bookings:
-            customer_email = booking.customer.user.email
+            customer_email = get_customer_email(booking)
             if customer_email and customer_email not in notified_emails:
                 customer_log = cls.send_email(
                     recipient_email=customer_email,
-                    recipient_name=booking.customer.user.full_name,
+                    recipient_name=get_customer_name(booking),
                     notification_type=NotificationType.SHOP_HOLIDAY,
                     context={
                         **context,
@@ -481,7 +570,7 @@ class EmailNotificationService:
                         'service_name': booking.service.name,
                     },
                     booking=booking,
-                    user=booking.customer.user
+                    user=get_customer_user(booking)
                 )
                 if customer_log:
                     logs.append(customer_log)
@@ -509,6 +598,6 @@ class EmailNotificationService:
             'shop_name': booking.shop.name,
             'shop_address': booking.shop.address,
             'shop_phone': booking.shop.phone,
-            'staff_name': booking.staff_member.user.full_name if booking.staff_member else 'Any available',
-            'customer_name': booking.customer.user.full_name,
+            'staff_name': get_staff_name(booking.staff_member) if booking.staff_member else 'Any available',
+            'customer_name': get_customer_name(booking),
         }
