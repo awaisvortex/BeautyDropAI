@@ -118,6 +118,44 @@ class ClerkService:
             'email_verified': any(email.get('verification', {}).get('status') == 'verified' for email in email_addresses),
             'role': role,
         }
+    
+    def get_google_oauth_token(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get Google OAuth access token from Clerk for a user.
+        Clerk manages token refresh automatically.
+        
+        Args:
+            user_id: Clerk user ID
+            
+        Returns:
+            Dict with 'token' (access_token) and optional 'scopes', or None on failure
+        """
+        try:
+            url = f"{self.api_url}/users/{user_id}/oauth_access_tokens/oauth_google"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            
+            if response.status_code == 200:
+                tokens = response.json()
+                # Clerk returns an array of tokens, get the first one
+                if tokens and len(tokens) > 0:
+                    token_data = tokens[0]
+                    return {
+                        'token': token_data.get('token'),
+                        'scopes': token_data.get('scopes', []),
+                        'provider': 'google',
+                    }
+                logger.warning(f"No Google OAuth token found for user {user_id}")
+                return None
+            elif response.status_code == 404:
+                logger.warning(f"User {user_id} has not connected Google account")
+                return None
+            else:
+                logger.warning(f"Failed to get Google OAuth token: {response.status_code} - {response.text}")
+                return None
+                
+        except requests.RequestException as e:
+            logger.error(f"Error fetching Google OAuth token from Clerk: {str(e)}")
+            return None
 
 
 # Singleton instance

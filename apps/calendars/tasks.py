@@ -21,6 +21,7 @@ def sync_booking_task(self, booking_id: str):
     from apps.bookings.models import Booking
     from apps.calendars.models import CalendarIntegration, CalendarEvent
     from apps.calendars.google_calendar_service import GoogleCalendarService
+    from apps.authentication.services.clerk_service import clerk_service
     
     try:
         booking = Booking.objects.select_related(
@@ -38,11 +39,14 @@ def sync_booking_task(self, booking_id: str):
             logger.debug(f"Calendar sync disabled for user {booking.customer.user.email}")
             return
         
-        # Initialize Google Calendar service
-        calendar_service = GoogleCalendarService(
-            integration.google_access_token,
-            integration.google_refresh_token
-        )
+        # Fetch fresh Google OAuth token from Clerk
+        token_data = clerk_service.get_google_oauth_token(booking.customer.user.clerk_user_id)
+        if not token_data or not token_data.get('token'):
+            logger.warning(f"Could not get Google token from Clerk for user {booking.customer.user.email}")
+            return
+        
+        # Initialize Google Calendar service with fresh token
+        calendar_service = GoogleCalendarService(token_data['token'])
         
         # Check if event already exists
         calendar_event, created = CalendarEvent.objects.get_or_create(
@@ -100,11 +104,12 @@ def delete_calendar_event_task(self, booking_id: str):
     """
     from apps.calendars.models import CalendarEvent
     from apps.calendars.google_calendar_service import GoogleCalendarService
+    from apps.authentication.services.clerk_service import clerk_service
     
     try:
-        calendar_event = CalendarEvent.objects.select_related('integration').get(
-            booking_id=booking_id
-        )
+        calendar_event = CalendarEvent.objects.select_related(
+            'integration__user'
+        ).get(booking_id=booking_id)
         
         if not calendar_event.google_event_id:
             logger.debug(f"No Google event ID for booking {booking_id}")
@@ -112,10 +117,15 @@ def delete_calendar_event_task(self, booking_id: str):
         
         integration = calendar_event.integration
         
-        calendar_service = GoogleCalendarService(
-            integration.google_access_token,
-            integration.google_refresh_token
-        )
+        # Fetch fresh Google OAuth token from Clerk
+        token_data = clerk_service.get_google_oauth_token(integration.user.clerk_user_id)
+        if not token_data or not token_data.get('token'):
+            logger.warning(f"Could not get Google token from Clerk for user {integration.user.email}")
+            # Still delete local record
+            calendar_event.delete()
+            return
+        
+        calendar_service = GoogleCalendarService(token_data['token'])
         
         calendar_service.delete_booking_event(
             calendar_event.google_event_id,

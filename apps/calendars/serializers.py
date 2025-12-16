@@ -9,43 +9,6 @@ from .models import CalendarIntegration, CalendarEvent
 @extend_schema_serializer(
     examples=[
         OpenApiExample(
-            'Connect Google Calendar',
-            summary='Request to connect Google Calendar',
-            description='Frontend sends OAuth tokens obtained from Clerk',
-            value={
-                'access_token': 'ya29.a0AfH6SMB...',
-                'refresh_token': '1//0g...',
-                'expires_at': 1702300000
-            },
-            request_only=True
-        )
-    ]
-)
-class GoogleConnectSerializer(serializers.Serializer):
-    """
-    Receive OAuth tokens from Clerk frontend.
-    Frontend gets these tokens via Clerk's getOAuthAccessToken("google")
-    """
-    access_token = serializers.CharField(
-        required=True,
-        help_text='Google OAuth access token from Clerk'
-    )
-    refresh_token = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        default='',
-        help_text='Google OAuth refresh token from Clerk (recommended for long-term access)'
-    )
-    expires_at = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text='Token expiration as Unix timestamp (seconds since epoch)'
-    )
-
-
-@extend_schema_serializer(
-    examples=[
-        OpenApiExample(
             'Connected Calendar',
             summary='User has connected Google Calendar',
             value={

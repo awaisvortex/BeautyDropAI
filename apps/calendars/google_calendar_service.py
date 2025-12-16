@@ -39,10 +39,13 @@ class GoogleCalendarService:
         Build the Google Calendar API service.
         """
         if self._service is None:
+            from django.conf import settings
             credentials = Credentials(
                 token=self.access_token,
                 refresh_token=self.refresh_token,
                 token_uri='https://oauth2.googleapis.com/token',
+                client_id=settings.GOOGLE_CALENDAR_CLIENT_ID,
+                client_secret=settings.GOOGLE_CALENDAR_CLIENT_SECRET,
             )
             self._service = build('calendar', 'v3', credentials=credentials)
         return self._service
