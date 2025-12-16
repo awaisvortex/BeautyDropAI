@@ -47,12 +47,16 @@ class CalendarIntegration(BaseModel):
 class CalendarEvent(BaseModel):
     """
     Links bookings to external calendar events for sync tracking.
-    Each confirmed booking can have one calendar event per integration.
+    Each confirmed booking can have one calendar event per integration (user).
+    This allows the same booking to appear in multiple calendars:
+    - Customer's calendar
+    - Staff member's calendar  
+    - Shop owner's (client) calendar
     """
-    booking = models.OneToOneField(
+    booking = models.ForeignKey(
         'bookings.Booking',
         on_delete=models.CASCADE,
-        related_name='calendar_event'
+        related_name='calendar_events'
     )
     integration = models.ForeignKey(
         CalendarIntegration,
@@ -72,6 +76,8 @@ class CalendarEvent(BaseModel):
         db_table = 'calendar_events'
         verbose_name = 'Calendar Event'
         verbose_name_plural = 'Calendar Events'
+        # Each booking can only have one event per integration (user)
+        unique_together = [['booking', 'integration']]
     
     def __str__(self):
         status = "Synced" if self.is_synced else "Pending"
