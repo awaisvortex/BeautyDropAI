@@ -222,7 +222,14 @@ class GoogleCalendarService:
         ]
         
         if booking.staff_member:
-            lines.append(f"Staff: {booking.staff_member.user.full_name}")
+            # Use staff name (always available) - user may not be linked yet
+            lines.append(f"Staff: {booking.staff_member.name}")
+        
+        if booking.customer:
+            if booking.customer.user:
+                lines.append(f"Customer: {booking.customer.user.full_name}")
+            elif hasattr(booking.customer, 'name') and booking.customer.name:
+                lines.append(f"Customer: {booking.customer.name}")
         
         if booking.notes:
             lines.append(f"\nNotes: {booking.notes}")
