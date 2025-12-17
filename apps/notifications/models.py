@@ -1,6 +1,6 @@
 """
 Notification models for BeautyDropAI.
-Includes in-app notifications, email notification logs, and user preferences.
+Includes in-app notifications, email notification logs, FCM devices, and user preferences.
 """
 from django.db import models
 from apps.core.models import BaseModel
@@ -15,6 +15,9 @@ class NotificationType(models.TextChoices):
     BOOKING_REMINDER_1HOUR = 'booking_reminder_1hour', 'Booking Reminder (1 Hour)'
     STAFF_ASSIGNMENT = 'staff_assignment', 'Staff Assignment Changed'
     SHOP_HOLIDAY = 'shop_holiday', 'Shop Holiday'
+    NEW_BOOKING = 'new_booking', 'New Booking (for staff/client)'
+    PAYMENT_SUCCESS = 'payment_success', 'Payment Successful'
+    PAYMENT_FAILED = 'payment_failed', 'Payment Failed'
     SYSTEM = 'system', 'System Notification'
     PAYMENT = 'payment', 'Payment Notification'
 
@@ -26,6 +29,7 @@ class NotificationStatus(models.TextChoices):
     DELIVERED = 'delivered', 'Delivered'
     FAILED = 'failed', 'Failed'
     BOUNCED = 'bounced', 'Bounced'
+
 
 
 class Notification(BaseModel):
@@ -226,3 +230,59 @@ class NotificationPreference(BaseModel):
             NotificationType.SHOP_HOLIDAY: self.email_shop_holiday,
         }
         return type_mapping.get(notification_type, True)
+
+
+class DeviceType(models.TextChoices):
+    """Types of devices for FCM"""
+    IOS = 'ios', 'iOS'
+    ANDROID = 'android', 'Android'
+    WEB = 'web', 'Web'
+
+
+class FCMDevice(BaseModel):
+    """
+    Stores Firebase Cloud Messaging device tokens for push notifications.
+    Each user can have multiple devices registered.
+    """
+    user = models.ForeignKey(
+        'authentication.User',
+        on_delete=models.CASCADE,
+        related_name='fcm_devices',
+        to_field='clerk_user_id'
+    )
+    
+    # FCM registration token from the device
+    fcm_token = models.CharField(
+        max_length=500,
+        unique=True,
+        help_text='Firebase Cloud Messaging device token'
+    )
+    
+    # Device info
+    device_type = models.CharField(
+        max_length=20,
+        choices=DeviceType.choices,
+        default=DeviceType.WEB
+    )
+    device_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text='Optional device name for identification'
+    )
+    
+    # Status
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Set to False if token is invalid or unregistered'
+    )
+    
+    class Meta:
+        db_table = 'fcm_devices'
+        verbose_name = 'FCM Device'
+        verbose_name_plural = 'FCM Devices'
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.device_type} ({self.fcm_token[:20]}...)"

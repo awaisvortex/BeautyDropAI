@@ -1,5 +1,6 @@
 """
 API views for notifications management.
+With Firebase Cloud Messaging integration.
 """
 from rest_framework import generics, status, views
 from rest_framework.response import Response
@@ -7,162 +8,129 @@ from rest_framework.permissions import IsAuthenticated
 from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
-from django.db.models import Count, Q
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
-from apps.notifications.models import Notification, NotificationPreference
+from apps.notifications.models import NotificationPreference, FCMDevice, DeviceType
 from apps.notifications.serializers import (
-    NotificationSerializer,
     NotificationPreferenceSerializer,
-    MarkNotificationReadSerializer,
-    MarkNotificationReadResponseSerializer,
-    NotificationCountSerializer,
-    DeleteNotificationResponseSerializer,
+    FCMTokenSerializer,
+    FCMTokenResponseSerializer,
     TestEmailSerializer,
     TestEmailResponseSerializer,
 )
 
 
-@extend_schema_view(
-    get=extend_schema(
-        tags=['Notifications'],
-        summary='List notifications',
-        description='Get all notifications for the current user, ordered by newest first.',
-        parameters=[
-            OpenApiParameter(
-                name='is_read',
-                type=bool,
-                location=OpenApiParameter.QUERY,
-                description='Filter by read status (true/false)'
-            ),
-            OpenApiParameter(
-                name='type',
-                type=str,
-                location=OpenApiParameter.QUERY,
-                description='Filter by notification type (e.g., booking_confirmation)'
-            ),
-        ]
-    )
-)
-class NotificationListView(generics.ListAPIView):
-    """
-    List all notifications for the authenticated user.
-    
-    Supports filtering:
-    - ?is_read=true/false - Filter by read status
-    - ?type=booking_confirmation - Filter by notification type
-    """
-    serializer_class = NotificationSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_queryset(self):
-        queryset = Notification.objects.filter(
-            user=self.request.user
-        ).order_by('-created_at')
-        
-        # Filter by read status
-        is_read = self.request.query_params.get('is_read')
-        if is_read is not None:
-            queryset = queryset.filter(is_read=is_read.lower() == 'true')
-        
-        # Filter by type
-        notification_type = self.request.query_params.get('type')
-        if notification_type:
-            queryset = queryset.filter(notification_type=notification_type)
-        
-        return queryset
-
-
 @extend_schema(
     tags=['Notifications'],
-    summary='Get notification counts',
-    description='Get total and unread notification counts for the current user.',
-    responses={200: NotificationCountSerializer}
+    summary='Register FCM device token',
+    description='''
+    Register a Firebase Cloud Messaging device token for push notifications.
+    
+    The frontend should call this endpoint:
+    - After user login
+    - When the FCM token refreshes
+    - When the app gains notification permissions
+    
+    If the token already exists for a different user, it will be reassigned to the current user.
+    ''',
+    request=FCMTokenSerializer,
+    responses={
+        200: FCMTokenResponseSerializer,
+        201: FCMTokenResponseSerializer,
+    }
 )
-class NotificationCountView(views.APIView):
-    """Get notification counts for the authenticated user."""
+class FCMTokenView(views.APIView):
+    """
+    Register or unregister FCM device tokens for push notifications.
     
-    permission_classes = [IsAuthenticated]
-    
-    def get(self, request):
-        counts = Notification.objects.filter(
-            user=request.user
-        ).aggregate(
-            total=Count('id'),
-            unread=Count('id', filter=Q(is_read=False))
-        )
-        
-        serializer = NotificationCountSerializer(counts)
-        return Response(serializer.data)
-
-
-@extend_schema(
-    tags=['Notifications'],
-    summary='Mark notifications as read',
-    description='Mark specific notifications as read by providing their IDs.',
-    request=MarkNotificationReadSerializer,
-    responses={200: MarkNotificationReadResponseSerializer}
-)
-class MarkNotificationReadView(views.APIView):
-    """Mark specific notifications as read."""
-    
+    POST: Register a new device token
+    DELETE: Unregister a device token (when user logs out or disables notifications)
+    """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        serializer = MarkNotificationReadSerializer(data=request.data)
+        """Register a new FCM device token."""
+        serializer = FCMTokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        notification_ids = serializer.validated_data.get('notification_ids', [])
-        now = timezone.now()
+        fcm_token = serializer.validated_data['fcm_token']
+        device_type = serializer.validated_data.get('device_type', DeviceType.WEB)
+        device_name = serializer.validated_data.get('device_name', '')
         
-        queryset = Notification.objects.filter(
-            user=request.user,
-            is_read=False
-        )
+        # Check if token already exists
+        existing_device = FCMDevice.objects.filter(fcm_token=fcm_token).first()
         
-        if notification_ids:
-            queryset = queryset.filter(id__in=notification_ids)
-        
-        updated_count = queryset.update(is_read=True, read_at=now)
-        
-        response_serializer = MarkNotificationReadResponseSerializer({
-            'message': f'{updated_count} notification(s) marked as read',
-            'updated_count': updated_count
-        })
-        return Response(response_serializer.data)
-
-
-@extend_schema(
-    tags=['Notifications'],
-    summary='Mark all notifications as read',
-    description='Mark all unread notifications as read for the current user.',
-    responses={200: MarkNotificationReadResponseSerializer}
-)
-class MarkAllNotificationsReadView(views.APIView):
-    """Mark all notifications as read."""
+        if existing_device:
+            # Token exists - update it (might be different user or reactivation)
+            existing_device.user = request.user
+            existing_device.device_type = device_type
+            existing_device.device_name = device_name
+            existing_device.is_active = True
+            existing_device.save()
+            
+            response_serializer = FCMTokenResponseSerializer({
+                'message': 'FCM token updated successfully',
+                'device_id': str(existing_device.id),
+                'is_new': False
+            })
+            return Response(response_serializer.data, status=status.HTTP_200_OK)
+        else:
+            # Create new device registration
+            device = FCMDevice.objects.create(
+                user=request.user,
+                fcm_token=fcm_token,
+                device_type=device_type,
+                device_name=device_name
+            )
+            
+            response_serializer = FCMTokenResponseSerializer({
+                'message': 'FCM token registered successfully',
+                'device_id': str(device.id),
+                'is_new': True
+            })
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
     
-    permission_classes = [IsAuthenticated]
-    
-    def post(self, request):
-        now = timezone.now()
+    @extend_schema(
+        tags=['Notifications'],
+        summary='Unregister FCM device token',
+        description='Remove a device token when user logs out or disables notifications.',
+        request=FCMTokenSerializer,
+        responses={200: FCMTokenResponseSerializer}
+    )
+    def delete(self, request):
+        """Unregister an FCM device token."""
+        serializer = FCMTokenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         
-        updated_count = Notification.objects.filter(
+        fcm_token = serializer.validated_data['fcm_token']
+        
+        # Find and deactivate or delete the device
+        deleted_count, _ = FCMDevice.objects.filter(
             user=request.user,
-            is_read=False
-        ).update(is_read=True, read_at=now)
+            fcm_token=fcm_token
+        ).delete()
         
-        response_serializer = MarkNotificationReadResponseSerializer({
-            'message': f'{updated_count} notification(s) marked as read',
-            'updated_count': updated_count
-        })
-        return Response(response_serializer.data)
+        if deleted_count > 0:
+            response_serializer = FCMTokenResponseSerializer({
+                'message': 'FCM token unregistered successfully',
+                'device_id': '',
+                'is_new': False
+            })
+        else:
+            response_serializer = FCMTokenResponseSerializer({
+                'message': 'FCM token not found',
+                'device_id': '',
+                'is_new': False
+            })
+        
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
 @extend_schema_view(
     get=extend_schema(
         tags=['Notifications'],
         summary='Get notification preferences',
-        description='Get the current user\'s email notification preferences.'
+        description='Get the current user\'s email and push notification preferences.'
     ),
     put=extend_schema(
         tags=['Notifications'],
@@ -179,7 +147,7 @@ class NotificationPreferenceView(generics.RetrieveUpdateAPIView):
     """
     Get or update notification preferences for the authenticated user.
     
-    Preferences control which email notifications the user receives:
+    Preferences control which notifications the user receives:
     - email_booking_confirmation: Booking confirmed emails
     - email_booking_cancellation: Booking cancelled emails
     - email_booking_reschedule: Booking rescheduled emails
@@ -187,7 +155,7 @@ class NotificationPreferenceView(generics.RetrieveUpdateAPIView):
     - email_staff_assignment: Staff member changed emails
     - email_shop_holiday: Shop holiday notification emails
     - email_marketing: Marketing and promotional emails
-    - push_enabled: In-app push notifications
+    - push_enabled: In-app push notifications via Firebase
     """
     serializer_class = NotificationPreferenceSerializer
     permission_classes = [IsAuthenticated]
@@ -198,45 +166,6 @@ class NotificationPreferenceView(generics.RetrieveUpdateAPIView):
             user=self.request.user
         )
         return preferences
-
-
-@extend_schema(
-    tags=['Notifications'],
-    summary='Delete a notification',
-    description='Delete a specific notification by ID.',
-    responses={204: None}
-)
-class NotificationDeleteView(generics.DestroyAPIView):
-    """Delete a notification."""
-    
-    serializer_class = NotificationSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_queryset(self):
-        return Notification.objects.filter(user=self.request.user)
-
-
-@extend_schema(
-    tags=['Notifications'],
-    summary='Clear all notifications',
-    description='Delete all notifications for the current user.',
-    responses={200: DeleteNotificationResponseSerializer}
-)
-class ClearAllNotificationsView(views.APIView):
-    """Clear all notifications for the user."""
-    
-    permission_classes = [IsAuthenticated]
-    
-    def delete(self, request):
-        deleted_count, _ = Notification.objects.filter(
-            user=request.user
-        ).delete()
-        
-        response_serializer = DeleteNotificationResponseSerializer({
-            'message': f'{deleted_count} notification(s) deleted',
-            'deleted_count': deleted_count
-        })
-        return Response(response_serializer.data)
 
 
 @extend_schema(

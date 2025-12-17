@@ -1,30 +1,21 @@
 """
 URL routes for notifications API.
+With Firebase Cloud Messaging integration.
 """
 from django.urls import path
 from apps.notifications.views import (
-    NotificationListView,
-    NotificationCountView,
-    MarkNotificationReadView,
-    MarkAllNotificationsReadView,
     NotificationPreferenceView,
-    NotificationDeleteView,
-    ClearAllNotificationsView,
-    TestEmailView
+    TestEmailView,
+    FCMTokenView,
 )
 
 app_name = 'notifications'
 
 urlpatterns = [
-    # Notification listing and management
-    path('', NotificationListView.as_view(), name='notification-list'),
-    path('count/', NotificationCountView.as_view(), name='notification-count'),
-    path('mark-read/', MarkNotificationReadView.as_view(), name='mark-read'),
-    path('mark-all-read/', MarkAllNotificationsReadView.as_view(), name='mark-all-read'),
-    path('clear-all/', ClearAllNotificationsView.as_view(), name='clear-all'),
-    path('<uuid:pk>/', NotificationDeleteView.as_view(), name='notification-delete'),
+    # FCM device token management
+    path('fcm-token/', FCMTokenView.as_view(), name='fcm-token'),
     
-    # Notification preferences
+    # Notification preferences (email + push settings)
     path('preferences/', NotificationPreferenceView.as_view(), name='preferences'),
     
     # Testing

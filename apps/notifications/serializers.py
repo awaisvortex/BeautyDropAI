@@ -1,5 +1,6 @@
 """
 Serializers for notifications API.
+With Firebase Cloud Messaging support.
 """
 from rest_framework import serializers
 from apps.notifications.models import (
@@ -7,7 +8,9 @@ from apps.notifications.models import (
     NotificationPreference,
     EmailNotificationLog,
     NotificationType,
-    NotificationStatus
+    NotificationStatus,
+    FCMDevice,
+    DeviceType
 )
 
 
@@ -157,3 +160,54 @@ class TestEmailResponseSerializer(serializers.Serializer):
     message = serializers.CharField(help_text='Result message')
     email = serializers.EmailField(help_text='Email address sent to')
 
+
+class FCMTokenSerializer(serializers.Serializer):
+    """Input serializer for registering FCM device tokens."""
+    
+    fcm_token = serializers.CharField(
+        max_length=500,
+        help_text='Firebase Cloud Messaging device token'
+    )
+    device_type = serializers.ChoiceField(
+        choices=DeviceType.choices,
+        default=DeviceType.WEB,
+        required=False,
+        help_text='Type of device (ios, android, web)'
+    )
+    device_name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text='Optional device name for identification (e.g., "iPhone 15 Pro")'
+    )
+
+
+class FCMTokenResponseSerializer(serializers.Serializer):
+    """Response serializer for FCM token operations."""
+    
+    message = serializers.CharField(help_text='Operation result message')
+    device_id = serializers.CharField(help_text='ID of the registered device')
+    is_new = serializers.BooleanField(help_text='True if this is a new registration')
+
+
+class FCMDeviceSerializer(serializers.ModelSerializer):
+    """Serializer for FCM device details (admin use)."""
+    
+    device_type_display = serializers.CharField(
+        source='get_device_type_display',
+        read_only=True
+    )
+    
+    class Meta:
+        model = FCMDevice
+        fields = [
+            'id',
+            'fcm_token',
+            'device_type',
+            'device_type_display',
+            'device_name',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = fields
