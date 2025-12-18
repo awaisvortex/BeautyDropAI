@@ -12,13 +12,117 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResp
 
 from apps.notifications.models import NotificationPreference, FCMDevice, DeviceType
 from apps.notifications.serializers import (
+    NotificationSerializer,
+    NotificationCountSerializer,
+    MarkNotificationReadSerializer,
+    MarkNotificationReadResponseSerializer,
+    DeleteNotificationResponseSerializer,
     NotificationPreferenceSerializer,
     FCMTokenSerializer,
     FCMTokenResponseSerializer,
     TestEmailSerializer,
     TestEmailResponseSerializer,
 )
+from apps.notifications.models import Notification, NotificationPreference, FCMDevice, DeviceType
 
+
+@extend_schema(
+    tags=['Notifications'],
+    summary='List notifications',
+    description='Get paginated list of notifications for the current user.',
+    responses={200: NotificationSerializer(many=True)}
+)
+class NotificationListView(generics.ListAPIView):
+    """
+    List notifications for the current user.
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user)
+
+
+@extend_schema(
+    tags=['Notifications'],
+    summary='Get notification counts',
+    description='Get total and unread notification counts.',
+    responses={200: NotificationCountSerializer}
+)
+class NotificationCountView(views.APIView):
+    """
+    Get notification counts (total/unread).
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        qs = Notification.objects.filter(user=request.user)
+        total = qs.count()
+        unread = qs.filter(is_read=False).count()
+        
+        serializer = NotificationCountSerializer({
+            'total': total,
+            'unread': unread
+        })
+        return Response(serializer.data)
+
+
+@extend_schema(
+    tags=['Notifications'],
+    summary='Mark notifications read',
+    description='Mark specific or all notifications as read.',
+    request=MarkNotificationReadSerializer,
+    responses={200: MarkNotificationReadResponseSerializer}
+)
+class NotificationMarkReadView(views.APIView):
+    """
+    Mark notifications as read.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        serializer = MarkNotificationReadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        notification_ids = serializer.validated_data.get('notification_ids')
+        
+        qs = Notification.objects.filter(user=request.user, is_read=False)
+        
+        if notification_ids:
+            qs = qs.filter(id__in=notification_ids)
+            
+        updated_count = qs.update(is_read=True, read_at=timezone.now())
+        
+        return Response({
+            'message': 'Notifications marked as read',
+            'updated_count': updated_count
+        })
+
+
+@extend_schema(
+    tags=['Notifications'],
+    summary='Delete notification',
+    description='Delete a specific notification.',
+    responses={200: DeleteNotificationResponseSerializer}
+)
+class DeleteNotificationView(generics.DestroyAPIView):
+    """
+    Delete a notification.
+    """
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user)
+    
+    def delete(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        
+        return Response({
+            'message': 'Notification deleted successfully',
+            'deleted_count': 1
+        })
 
 @extend_schema(
     tags=['Notifications'],

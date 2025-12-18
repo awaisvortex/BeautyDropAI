@@ -67,6 +67,7 @@ class FCMService:
     ) -> int:
         """
         Send push notification to all of a user's registered devices.
+        Also creates a Notification record in the database.
         
         Args:
             user: User instance
@@ -78,7 +79,19 @@ class FCMService:
         Returns:
             Number of notifications sent successfully
         """
-        from apps.notifications.models import FCMDevice
+        from apps.notifications.models import FCMDevice, Notification
+        
+        # Create database notification for history
+        try:
+            Notification.objects.create(
+                user=user,
+                title=title,
+                message=body,
+                notification_type=notification_type,
+                metadata=data or {}
+            )
+        except Exception as e:
+            logger.error(f"Failed to create notification record: {e}")
         
         # Get all active devices for the user
         devices = FCMDevice.objects.filter(

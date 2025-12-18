@@ -21,15 +21,23 @@ def send_push_notification(user, title: str, body: str, data: dict = None, notif
     """
     try:
         from apps.notifications.services.fcm_service import FCMService
-        FCMService.send_to_user(
+        logger.info(f"Attempting to send push notification to {user.email}: {title}")
+        
+        sent_count = FCMService.send_to_user(
             user=user,
             title=title,
             body=body,
             data=data or {},
             notification_type=notification_type
         )
+        
+        if sent_count > 0:
+            logger.info(f"Successfully sent {sent_count} push notification(s) to {user.email}")
+        else:
+            logger.warning(f"No push notifications sent to {user.email} (no active devices?)")
+            
     except Exception as e:
-        logger.warning(f"Failed to send push notification to {user.email}: {e}")
+        logger.error(f"Failed to send push notification to {user.email}: {e}", exc_info=True)
 
 
 @receiver(pre_save, sender='bookings.Booking')
