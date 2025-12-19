@@ -397,8 +397,25 @@ class BookingViewSet(viewsets.GenericViewSet,
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Determine who is cancelling based on user role
+        user = request.user
+        if user.role == 'customer':
+            cancelled_by = 'customer'
+        elif user.role == 'staff':
+            cancelled_by = 'staff'
+        elif user.role == 'client':
+            cancelled_by = 'owner'
+        else:
+            cancelled_by = 'system'
+        
+        # Get cancellation reason from request body if provided
+        cancellation_reason = request.data.get('reason', '')
+        
         booking.status = 'cancelled'
-        booking.save(update_fields=['status'])
+        booking.cancelled_by = cancelled_by
+        booking.cancelled_at = timezone.now()
+        booking.cancellation_reason = cancellation_reason
+        booking.save(update_fields=['status', 'cancelled_by', 'cancelled_at', 'cancellation_reason'])
         
         # Free up the time slot
         if booking.time_slot:
