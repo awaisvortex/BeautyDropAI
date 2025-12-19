@@ -62,6 +62,18 @@ class Booking(BaseModel):
     notes = models.TextField(blank=True)
     cancellation_reason = models.TextField(blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.CharField(
+        max_length=20,
+        choices=[
+            ('customer', 'Customer'),
+            ('staff', 'Staff'),
+            ('owner', 'Owner'),
+            ('system', 'System'),
+        ],
+        blank=True,
+        null=True,
+        help_text='Who cancelled the booking'
+    )
     
     class Meta:
         db_table = 'bookings'

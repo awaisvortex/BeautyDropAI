@@ -234,6 +234,10 @@ FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
 GOOGLE_CALENDAR_CLIENT_ID = env('GOOGLE_CALENDAR_CLIENT_ID', default='')
 GOOGLE_CALENDAR_CLIENT_SECRET = env('GOOGLE_CALENDAR_CLIENT_SECRET', default='')
 
+# Firebase Configuration (for Cloud Messaging push notifications)
+# Path to Firebase service account JSON file
+FIREBASE_CREDENTIALS_PATH = env('FIREBASE_CREDENTIALS_PATH', default='')
+
 # Redis Configuration
 REDIS_URL = env('REDIS_URL')
 CACHES = {
