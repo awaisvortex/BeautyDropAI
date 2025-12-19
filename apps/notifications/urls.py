@@ -10,6 +10,7 @@ from apps.notifications.views import (
     NotificationListView,
     NotificationCountView,
     NotificationMarkReadView,
+    MarkAllReadView,
     DeleteNotificationView,
 )
 
@@ -20,6 +21,7 @@ urlpatterns = [
     path('', NotificationListView.as_view(), name='list'),
     path('count/', NotificationCountView.as_view(), name='count'),
     path('mark-read/', NotificationMarkReadView.as_view(), name='mark-read'),
+    path('mark-all-read/', MarkAllReadView.as_view(), name='mark-all-read'),
     path('<uuid:pk>/', DeleteNotificationView.as_view(), name='delete'),
 
     # FCM device token management

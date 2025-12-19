@@ -101,6 +101,30 @@ class NotificationMarkReadView(views.APIView):
 
 @extend_schema(
     tags=['Notifications'],
+    summary='Mark all notifications as read',
+    description='Mark all unread notifications as read for the current user.',
+    request=None,
+    responses={200: MarkNotificationReadResponseSerializer}
+)
+class MarkAllReadView(views.APIView):
+    """
+    Mark all notifications as read.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        updated_count = Notification.objects.filter(
+            user=request.user,
+            is_read=False
+        ).update(is_read=True, read_at=timezone.now())
+        
+        return Response({
+            'message': 'All notifications marked as read',
+            'updated_count': updated_count
+        })
+
+@extend_schema(
+    tags=['Notifications'],
     summary='Delete notification',
     description='Delete a specific notification.',
     responses={200: DeleteNotificationResponseSerializer}

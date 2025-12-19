@@ -109,9 +109,15 @@ class ShopScheduleViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
         # Get selected days
         days = serializer.get_days()
         
+        # All possible days
+        all_days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        days_to_remove = [d for d in all_days if d not in days]
+        
         created_count = 0
         updated_count = 0
+        removed_count = 0
         
+        # Create or update selected days
         for day in days:
             schedule, created = ShopSchedule.objects.update_or_create(
                 shop=shop,
@@ -127,11 +133,18 @@ class ShopScheduleViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
             else:
                 updated_count += 1
         
+        # Delete schedules for days not in the list
+        removed_count, _ = ShopSchedule.objects.filter(
+            shop=shop,
+            day_of_week__in=days_to_remove
+        ).delete()
+        
         return Response({
             'message': f'Successfully configured {len(days)} days',
             'schedules_created': created_count,
             'schedules_updated': updated_count,
-            'days': days,
+            'schedules_removed': removed_count,
+            'active_days': days,
             'shop_hours': {
                 'start_time': start_time.isoformat(),
                 'end_time': end_time.isoformat()
