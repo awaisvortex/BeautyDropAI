@@ -1,0 +1,55 @@
+# Cloud Build configuration for BeautyDrop AI Backend
+# Triggers on push to main branch
+
+steps:
+  # Step 1: Build Docker image
+  - name: "gcr.io/cloud-builders/docker"
+    id: "Build Image"
+    args:
+      - "build"
+      - "-t"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
+      - "-t"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:latest"
+      - "."
+
+  # Step 2: Push Docker image to Artifact Registry
+  - name: "gcr.io/cloud-builders/docker"
+    id: "Push Image"
+    args:
+      - "push"
+      - "--all-tags"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app"
+
+  # Step 3: Deploy to Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "Deploy to Cloud Run"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "beautydrop-api"
+      - "--image"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
+      - "--region"
+      - "us-east1"
+      - "--platform"
+      - "managed"
+      - "--allow-unauthenticated"
+
+# Store images in Artifact Registry
+images:
+  - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
+  - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:latest"
+
+# Build options
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# Substitutions (can be overridden)
+substitutions:
+  _REGION: "us-east1"
+  _SERVICE_NAME: "beautydrop-api"
+
+# Timeout for the entire build
+timeout: "1200s"
