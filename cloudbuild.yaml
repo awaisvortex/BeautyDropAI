@@ -1,0 +1,57 @@
+# Cloud Build configuration for automatic deployment to Cloud Run
+steps:
+  # Build the Docker image
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
+      - "-t"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:latest"
+      - "."
+
+  # Push the image to Artifact Registry
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "push"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
+
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "push"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:latest"
+
+  # Deploy to Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - "run"
+      - "deploy"
+      - "beautydrop-api"
+      - "--image"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
+      - "--region"
+      - "us-east1"
+      - "--platform"
+      - "managed"
+      - "--allow-unauthenticated"
+      - "--memory"
+      - "1Gi"
+      - "--cpu"
+      - "1"
+      - "--min-instances"
+      - "0"
+      - "--max-instances"
+      - "10"
+      - "--timeout"
+      - "300"
+      - "--port"
+      - "8080"
+
+# Store images in Artifact Registry
+images:
+  - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
+  - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:latest"
+
+options:
+  logging: CLOUD_LOGGING_ONLY

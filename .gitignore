@@ -91,3 +91,6 @@ dist/
 downloads/
 
 poetry.toml
+
+# --- Documentation ---
+docs/
