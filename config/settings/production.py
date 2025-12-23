@@ -10,6 +10,14 @@ SECURE_SSL_REDIRECT = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
+
+# CSRF trusted origins for Cloud Run
+CSRF_TRUSTED_ORIGINS = [
+    'https://beautydrop-api-497422674710.us-east1.run.app',
+    'https://beautydropai.com',
+    'https://www.beautydropai.com',
+    'https://api.beautydropai.com',
+]
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
