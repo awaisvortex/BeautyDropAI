@@ -102,7 +102,7 @@ def handle_user_created(event):
         if hasattr(user, 'stripe_customer'):
             logger.info(f"Stripe customer already exists for user {user.email}")
             log_webhook_event('user.created', event_id, event, True)
-            return
+            return True
         
         # Create Stripe customer
         try:

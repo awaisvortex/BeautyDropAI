@@ -14,9 +14,9 @@ CSRF_COOKIE_SECURE = True
 # CSRF trusted origins for Cloud Run
 CSRF_TRUSTED_ORIGINS = [
     'https://beautydrop-api-497422674710.us-east1.run.app',
-    'https://beautydropai.com',
-    'https://www.beautydropai.com',
-    'https://api.beautydropai.com',
+    'https://beautydrop.ai',
+    'https://www.beautydrop.ai',
+    'https://api.beautydrop.ai',
 ]
 
 SECURE_BROWSER_XSS_FILTER = True
