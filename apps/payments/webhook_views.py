@@ -63,17 +63,45 @@ def clerk_webhook(request):
     """
     Handle incoming Clerk webhooks.
     
-    Note: Add Clerk webhook signature verification if Clerk provides it.
+    Verifies webhook signature using Svix and processes the event.
     """
     import json
+    from django.conf import settings
     
     try:
-        payload = json.loads(request.body)
+        payload = request.body
         
-        # TODO: Add Clerk webhook signature verification if available
-        # For now, we're trusting the webhook source
+        # Verify Clerk webhook signature using Svix
+        webhook_secret = getattr(settings, 'CLERK_WEBHOOK_SECRET', '')
         
-        event = payload
+        if webhook_secret:
+            from svix.webhooks import Webhook, WebhookVerificationError
+            
+            # Get the headers needed for verification
+            svix_id = request.META.get('HTTP_SVIX_ID', '')
+            svix_timestamp = request.META.get('HTTP_SVIX_TIMESTAMP', '')
+            svix_signature = request.META.get('HTTP_SVIX_SIGNATURE', '')
+            
+            if not all([svix_id, svix_timestamp, svix_signature]):
+                logger.warning("Missing Svix headers in Clerk webhook")
+                return HttpResponse("Missing webhook headers", status=400)
+            
+            headers = {
+                'svix-id': svix_id,
+                'svix-timestamp': svix_timestamp,
+                'svix-signature': svix_signature,
+            }
+            
+            try:
+                wh = Webhook(webhook_secret)
+                event = wh.verify(payload, headers)
+            except WebhookVerificationError as e:
+                logger.error(f"Clerk webhook signature verification failed: {str(e)}")
+                return HttpResponse("Invalid signature", status=400)
+        else:
+            # No webhook secret configured - parse without verification (dev mode)
+            logger.warning("CLERK_WEBHOOK_SECRET not configured - skipping signature verification")
+            event = json.loads(payload)
         
         # Process the event
         success = process_clerk_webhook(event)
