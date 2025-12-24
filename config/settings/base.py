@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'apps.subscriptions',
     'apps.notifications',
     'apps.calendars',
+    'apps.agent',
 ]
 
 MIDDLEWARE = [
@@ -186,6 +187,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Subscriptions - Client', 'description': 'Client subscription management'},
         {'name': 'Subscriptions - Admin', 'description': 'Admin subscription plan management'},
         {'name': 'Calendars', 'description': 'Google Calendar integration for booking sync'},
+        {'name': 'AI Agent', 'description': 'AI-powered chat assistant for booking and shop management'},
     ],
     'APPEND_COMPONENTS': {
         'securitySchemes': {
@@ -237,6 +239,15 @@ GOOGLE_CALENDAR_CLIENT_SECRET = env('GOOGLE_CALENDAR_CLIENT_SECRET', default='')
 # Firebase Configuration (for Cloud Messaging push notifications)
 # Path to Firebase service account JSON file
 FIREBASE_CREDENTIALS_PATH = env('FIREBASE_CREDENTIALS_PATH', default='')
+
+# OpenAI Configuration (for AI Agent)
+OPENAI_API_KEY = env('OPENAI_API_KEY', default='')
+OPENAI_MODEL = env('OPENAI_MODEL', default='gpt-4-turbo-preview')
+
+# Pinecone Configuration (for AI Agent knowledge base)
+PINECONE_API_KEY = env('PINECONE_API_KEY', default='')
+PINECONE_INDEX_NAME = env('PINECONE_INDEX_NAME', default='beautydrop-knowledge')
+
 
 # Redis Configuration
 REDIS_URL = env('REDIS_URL')
