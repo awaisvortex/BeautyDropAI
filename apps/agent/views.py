@@ -6,9 +6,10 @@ import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
+from django.contrib.auth.models import AnonymousUser
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter, OpenApiExample
 
 from .models import ChatSession, ChatMessage
 from .serializers import (
@@ -25,13 +26,20 @@ class AgentViewSet(viewsets.ViewSet):
     """
     AI Agent endpoints for chat interactions.
     
-    Provides chat functionality for customers, shop owners, and staff.
+    Provides chat functionality for customers, shop owners, staff, and guests.
     Each user role gets tailored context and capabilities.
+    
+    **Guest users** can browse shops and services without signing in.
+    Booking/cancellation requires authentication.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]  # Allow guests, but limit their actions
     
     def _get_user_role(self, user):
         """Determine user's role for context."""
+        # Guest/anonymous users
+        if not user or isinstance(user, AnonymousUser) or not user.is_authenticated:
+            return 'guest'
+        
         if hasattr(user, 'customer_profile') and user.customer_profile:
             return 'customer'
         elif hasattr(user, 'client_profile') and user.client_profile:
@@ -40,15 +48,26 @@ class AgentViewSet(viewsets.ViewSet):
             return 'staff'
         return user.role if hasattr(user, 'role') else 'customer'
     
+    def _is_authenticated(self, request):
+        """Check if user is authenticated."""
+        return (
+            request.user and 
+            not isinstance(request.user, AnonymousUser) and 
+            request.user.is_authenticated
+        )
+    
     @extend_schema(
         summary="Chat with AI Agent",
         description="""
         Send a message to the AI assistant and receive a response.
         
-        The agent can:
-        - **Customers**: Search shops, check availability, book/cancel appointments
+        **Authentication is optional:**
+        - **Guests (no auth)**: Can browse shops, view services, check availability
+        - **Customers**: Full access - search, book, cancel appointments
         - **Shop Owners**: Manage bookings, view analytics, manage staff
         - **Staff**: View schedule, complete bookings
+        
+        Guest users will be prompted to sign in when trying to book or cancel.
         
         Include `session_id` to continue an existing conversation.
         Omit `session_id` to start a new conversation.
@@ -57,7 +76,6 @@ class AgentViewSet(viewsets.ViewSet):
         responses={
             200: ChatResponseSerializer,
             400: OpenApiResponse(description="Bad Request"),
-            401: OpenApiResponse(description="Unauthorized"),
         },
         tags=['AI Agent']
     )
@@ -68,29 +86,42 @@ class AgentViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         
         user = request.user
+        is_authenticated = self._is_authenticated(request)
         user_role = self._get_user_role(user)
         message = serializer.validated_data['message']
         session_id = serializer.validated_data.get('session_id')
         
-        # Get or create session
-        if session_id:
-            try:
-                session = ChatSession.objects.get(
-                    session_id=session_id,
-                    user=user
-                )
-            except ChatSession.DoesNotExist:
-                return Response(
-                    {'error': 'Session not found'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-        else:
-            session_id = str(uuid.uuid4())
-            session = ChatSession.objects.create(
-                user=user,
+        # For guests, use a simplified session approach
+        if not is_authenticated:
+            # Guests can only have ephemeral sessions (not persisted to user)
+            session_id = session_id or str(uuid.uuid4())
+            
+            # Try to get existing guest session or create new one
+            session, created = ChatSession.objects.get_or_create(
                 session_id=session_id,
-                user_role=user_role
+                user=None,  # Guest sessions have no user
+                defaults={'user_role': 'guest'}
             )
+        else:
+            # Authenticated user session handling
+            if session_id:
+                try:
+                    session = ChatSession.objects.get(
+                        session_id=session_id,
+                        user=user
+                    )
+                except ChatSession.DoesNotExist:
+                    return Response(
+                        {'error': 'Session not found'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            else:
+                session_id = str(uuid.uuid4())
+                session = ChatSession.objects.create(
+                    user=user,
+                    session_id=session_id,
+                    user_role=user_role
+                )
         
         # Save user message
         user_message = ChatMessage.objects.create(
@@ -99,11 +130,9 @@ class AgentViewSet(viewsets.ViewSet):
             content=message
         )
         
-        # TODO: Implement agent controller to process message
-        # For now, return placeholder response
         try:
             from .services.agent_controller import AgentController
-            controller = AgentController(user, session)
+            controller = AgentController(user if is_authenticated else None, session)
             result = controller.process_message(message)
             
             # Save assistant message
@@ -128,6 +157,8 @@ class AgentViewSet(viewsets.ViewSet):
                 'session_id': session_id,
                 'message_id': str(assistant_message.id),
                 'actions_taken': result.get('actions_taken', []),
+                'is_authenticated': is_authenticated,
+                'user_role': user_role,
                 'tokens_used': {
                     'prompt': result.get('prompt_tokens', 0),
                     'completion': result.get('completion_tokens', 0)
