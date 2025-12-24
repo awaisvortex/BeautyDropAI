@@ -66,6 +66,11 @@ whitenoise = "^6.6.0"
 firebase-admin = "^7.1.0"
 svix = "^1.83.0"
 
+# AI Agent
+openai = "^1.10.0"
+pinecone-client = "^3.0.0"
+tiktoken = "^0.5.0"
+
 [tool.poetry.group.dev.dependencies]
 # Testing
 pytest = "^8.0.0"
