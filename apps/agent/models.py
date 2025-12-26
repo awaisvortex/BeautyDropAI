@@ -11,12 +11,15 @@ class ChatSession(BaseModel):
     A chat session between user and AI agent.
     Each session maintains conversation context and history.
     """
-    # User who owns this session
+    # User who owns this session (NULL for guest sessions)
     user = models.ForeignKey(
         'authentication.User',
         on_delete=models.CASCADE,
         related_name='chat_sessions',
-        to_field='clerk_user_id'
+        to_field='clerk_user_id',
+        null=True,
+        blank=True,
+        help_text='NULL for guest (unauthenticated) sessions'
     )
     
     # Session identifier (UUID)
