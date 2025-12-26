@@ -14,8 +14,10 @@ class GetAvailableSlotsTool(BaseTool):
     description = """
     Get available time slots for booking at a shop on a specific date.
     ALWAYS use this before creating a booking to ensure the slot is available.
+    Supports natural language dates like 'tomorrow', 'tuesday', 'next monday'.
+    Can also filter by specific staff member availability.
     """
-    allowed_roles = ["customer", "client", "staff"]
+    allowed_roles = ["customer", "client", "staff", "guest"]
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -26,31 +28,101 @@ class GetAvailableSlotsTool(BaseTool):
                     "type": "string",
                     "description": "UUID of the shop"
                 },
+                "shop_name": {
+                    "type": "string",
+                    "description": "Alternative: Shop name if UUID not available"
+                },
                 "date": {
                     "type": "string",
-                    "description": "Date to check (YYYY-MM-DD format)"
+                    "description": "Date to check - can be YYYY-MM-DD or natural language like 'tomorrow', 'tuesday', 'next monday'"
                 },
                 "service_id": {
                     "type": "string",
                     "description": "Optional: Service ID to check duration-specific availability"
+                },
+                "staff_id": {
+                    "type": "string",
+                    "description": "Optional: Staff member ID to check their specific availability"
                 }
             },
-            "required": ["shop_id", "date"]
+            "required": ["date"]
         }
+    
+    def _parse_natural_date(self, date_str: str) -> date:
+        """Parse natural language date strings."""
+        date_str = date_str.lower().strip()
+        today = timezone.now().date()
+        
+        # Handle standard format first
+        try:
+            return datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+        
+        # Natural language mappings
+        if date_str in ['today', 'now']:
+            return today
+        elif date_str in ['tomorrow', 'tmrw']:
+            return today + timedelta(days=1)
+        elif date_str in ['yesterday']:
+            return today - timedelta(days=1)
+        
+        # Day of week
+        weekdays = {
+            'monday': 0, 'mon': 0,
+            'tuesday': 1, 'tue': 1, 'tues': 1,
+            'wednesday': 2, 'wed': 2,
+            'thursday': 3, 'thu': 3, 'thur': 3, 'thurs': 3,
+            'friday': 4, 'fri': 4,
+            'saturday': 5, 'sat': 5,
+            'sunday': 6, 'sun': 6
+        }
+        
+        # Check for "next <weekday>" or just "<weekday>"
+        for day_name, day_num in weekdays.items():
+            if day_name in date_str:
+                current_weekday = today.weekday()
+                days_ahead = (day_num - current_weekday) % 7
+                if days_ahead == 0:  # Same day means next week if "next" specified
+                    if 'next' in date_str:
+                        days_ahead = 7
+                return today + timedelta(days=days_ahead)
+        
+        # Default to today if unparseable
+        raise ValueError(f"Cannot parse date: {date_str}")
     
     def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
         from apps.shops.models import Shop
         from apps.services.models import Service
+        from apps.staff.models import StaffMember
         from apps.schedules.models import Holiday
         from apps.schedules.services.availability import AvailabilityService
+        import logging
+        logger = logging.getLogger(__name__)
         
         try:
-            shop = Shop.objects.get(id=kwargs['shop_id'], is_active=True)
+            # Get shop by ID or name
+            shop_id = kwargs.get('shop_id')
+            shop_name = kwargs.get('shop_name')
             
+            if shop_id:
+                try:
+                    shop = Shop.objects.get(id=shop_id, is_active=True)
+                except (Shop.DoesNotExist, Exception):
+                    shop = Shop.objects.filter(name__icontains=shop_id, is_active=True).first()
+            elif shop_name:
+                shop = Shop.objects.filter(name__icontains=shop_name, is_active=True).first()
+            else:
+                return {"success": False, "error": "Please provide shop_id or shop_name"}
+            
+            if not shop:
+                return {"success": False, "error": "Shop not found"}
+            
+            # Parse date
             try:
-                check_date = datetime.strptime(kwargs['date'], '%Y-%m-%d').date()
-            except ValueError:
-                return {"success": False, "error": "Invalid date format. Use YYYY-MM-DD"}
+                check_date = self._parse_natural_date(kwargs['date'])
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
             
             # Check if past date
             if check_date < timezone.now().date():
@@ -63,6 +135,7 @@ class GetAvailableSlotsTool(BaseTool):
                 return {
                     "success": True,
                     "shop": shop.name,
+                    "shop_id": str(shop.id),
                     "date": check_date.isoformat(),
                     "is_holiday": True,
                     "holiday_name": holiday.name or "Closed",
@@ -72,39 +145,93 @@ class GetAvailableSlotsTool(BaseTool):
             
             # Get service duration
             service_duration = 30  # default
-            if kwargs.get('service_id'):
+            service = None
+            service_id_or_name = kwargs.get('service_id')
+            
+            if service_id_or_name:
+                # Try as UUID first
                 try:
-                    service = Service.objects.get(id=kwargs['service_id'], shop=shop)
-                    service_duration = service.duration_minutes
-                except Service.DoesNotExist:
+                    from uuid import UUID
+                    UUID(str(service_id_or_name))
+                    service = Service.objects.get(id=service_id_or_name, shop=shop, is_active=True)
+                except (ValueError, Service.DoesNotExist):
+                    # Try as name
+                    service = Service.objects.filter(
+                        shop=shop, 
+                        name__icontains=service_id_or_name, 
+                        is_active=True
+                    ).first()
+            else:
+                # If no service specified, get first active service
+                service = Service.objects.filter(shop=shop, is_active=True).first()
+            
+            if not service:
+                return {
+                    "success": False, 
+                    "error": "Please specify a service. Use get_shop_services to see available services."
+                }
+            
+            # Get available slots using AvailabilityService with correct API
+            availability_service = AvailabilityService(
+                service_id=service.id,
+                target_date=check_date
+            )
+            raw_slots = availability_service.get_available_slots()
+            
+            # Filter by staff availability if specified
+            staff_name = None
+            if kwargs.get('staff_id'):
+                try:
+                    staff = StaffMember.objects.get(id=kwargs['staff_id'], shop=shop, is_active=True)
+                    staff_name = staff.name
+                    # Filter raw_slots to only include slots where this staff is available
+                    raw_slots = [slot for slot in raw_slots if staff.id in slot.available_staff_ids]
+                    logger.info(f"Filtering slots for staff: {staff.name}")
+                except StaffMember.DoesNotExist:
                     pass
             
-            # Get available slots
-            availability_service = AvailabilityService(shop)
-            slots = availability_service.get_available_slots(
-                date=check_date,
-                service_duration=service_duration
+            # Get available staff for the service
+            staff_members = StaffMember.objects.filter(
+                shop=shop,
+                is_active=True,
+                services=service
             )
+            staff_map = {s.id: s.name for s in staff_members}
+            available_staff = [{"id": str(s.id), "name": s.name} for s in staff_members]
+            
+            # Format slots (raw_slots is list of AvailableSlot dataclass)
+            formatted_slots = []
+            for slot in raw_slots[:20]:  # Limit to 20 slots
+                slot_data = {
+                    "start_time": slot.start_time.strftime('%I:%M %p'),
+                    "end_time": slot.end_time.strftime('%I:%M %p'),
+                    "start_time_24h": slot.start_time.strftime('%H:%M'),
+                }
+                # Add available staff names for this slot
+                if slot.available_staff_ids:
+                    slot_data["available_staff"] = [
+                        staff_map.get(sid, "Staff") 
+                        for sid in slot.available_staff_ids 
+                        if sid in staff_map
+                    ]
+                formatted_slots.append(slot_data)
             
             return {
                 "success": True,
                 "shop": shop.name,
+                "shop_id": str(shop.id),
+                "service": service.name,
+                "service_id": str(service.id),
+                "service_duration_minutes": service.duration_minutes,
                 "date": check_date.isoformat(),
                 "formatted_date": check_date.strftime("%A, %B %d, %Y"),
                 "is_holiday": False,
-                "slot_count": len(slots),
-                "available_slots": [
-                    {
-                        "start_time": slot['start_time'].strftime('%I:%M %p'),
-                        "end_time": slot['end_time'].strftime('%I:%M %p'),
-                        "start_time_24h": slot['start_time'].strftime('%H:%M')
-                    }
-                    for slot in slots
-                ]
+                "slot_count": len(raw_slots),
+                "available_slots": formatted_slots,
+                "available_staff": available_staff,
+                "filtered_by_staff": staff_name
             }
             
-        except Shop.DoesNotExist:
-            return {"success": False, "error": "Shop not found"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -117,7 +244,7 @@ class GetShopHoursTool(BaseTool):
     Get the weekly operating hours for a shop.
     Shows opening and closing times for each day.
     """
-    allowed_roles = ["customer", "client", "staff"]
+    allowed_roles = ["customer", "client", "staff", "guest"]
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -147,8 +274,7 @@ class GetShopHoursTool(BaseTool):
             for schedule in schedules:
                 hours_map[schedule.day_of_week] = {
                     "open": schedule.start_time.strftime('%I:%M %p'),
-                    "close": schedule.end_time.strftime('%I:%M %p'),
-                    "slot_duration": schedule.slot_duration_minutes
+                    "close": schedule.end_time.strftime('%I:%M %p')
                 }
             
             weekly_hours = []
@@ -188,7 +314,7 @@ class GetShopHolidaysTool(BaseTool):
     Get upcoming holidays/closure dates for a shop.
     Use to inform customers about days when the shop will be closed.
     """
-    allowed_roles = ["customer", "client", "staff"]
+    allowed_roles = ["customer", "client", "staff", "guest"]
     
     @property
     def parameters(self) -> Dict[str, Any]:

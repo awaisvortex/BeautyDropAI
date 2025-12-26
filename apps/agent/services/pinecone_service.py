@@ -47,6 +47,10 @@ class PineconeService:
             service_names = ", ".join([s.name for s in services[:10]])
             categories = set(s.category for s in services if s.category)
             
+            # Get active staff members
+            staff_members = shop.staff_members.filter(is_active=True, user__isnull=False)
+            staff_names = ", ".join([s.name for s in staff_members[:10]])
+            
             metadata = {
                 "shop_id": str(shop.id),
                 "shop_name": shop.name,
@@ -54,11 +58,13 @@ class PineconeService:
                 "city": shop.city,
                 "state": shop.state or "",
                 "country": shop.country,
+                "address": shop.address or "",
                 "is_verified": shop.is_verified,
                 "rating": float(shop.average_rating),
                 "total_reviews": shop.total_reviews,
                 "services": service_names[:200],
                 "categories": list(categories)[:5],
+                "staff": staff_names[:200],
                 "phone": shop.phone or "",
                 "is_active": shop.is_active,
             }

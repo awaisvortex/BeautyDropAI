@@ -110,7 +110,9 @@ class CreateBookingTool(BaseTool):
     name = "create_booking"
     description = """
     Create a new booking/appointment for the customer at a shop.
-    Requires: shop_id, service_id, booking_datetime (ISO format).
+    Supports shop names and service names in addition to UUIDs.
+    Supports natural language datetime like '2pm tomorrow' or 'tuesday at 14:00'.
+    If staff_member_id is not provided, will auto-assign first available staff.
     IMPORTANT: Always check availability first using get_available_slots.
     """
     allowed_roles = ["customer"]
@@ -124,25 +126,114 @@ class CreateBookingTool(BaseTool):
                     "type": "string",
                     "description": "UUID of the shop"
                 },
+                "shop_name": {
+                    "type": "string",
+                    "description": "Alternative: Shop name if UUID not available"
+                },
                 "service_id": {
                     "type": "string",
                     "description": "UUID of the service to book"
                 },
+                "service_name": {
+                    "type": "string",
+                    "description": "Alternative: Service name (e.g., 'Haircut')"
+                },
                 "booking_datetime": {
                     "type": "string",
-                    "description": "Booking date and time in ISO 8601 format (e.g., 2024-01-15T10:00:00)"
+                    "description": "Booking date and time - can be ISO format (2024-01-15T10:00:00) or natural language like 'tuesday at 2pm'"
                 },
                 "staff_member_id": {
                     "type": "string",
-                    "description": "Optional: UUID of preferred staff member"
+                    "description": "Optional: UUID of preferred staff member. If not provided, first available staff will be assigned."
+                },
+                "staff_name": {
+                    "type": "string",
+                    "description": "Optional: Preferred staff member name"
                 },
                 "notes": {
                     "type": "string",
                     "description": "Optional: Special notes or requests for the booking"
                 }
             },
-            "required": ["shop_id", "service_id", "booking_datetime"]
+            "required": ["booking_datetime"]
         }
+    
+    def _parse_booking_datetime(self, dt_str: str) -> datetime:
+        """Parse booking datetime from various formats."""
+        from datetime import timedelta
+        
+        dt_str = dt_str.strip()
+        
+        # Try ISO format first
+        try:
+            dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt)
+            return dt
+        except ValueError:
+            pass
+        
+        # Try to parse natural language
+        today = timezone.now().date()
+        current_time = timezone.now()
+        
+        # Extract time component (look for patterns like "2pm", "14:00", "2:30 pm")
+        import re
+        time_pattern = r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)?'
+        time_match = re.search(time_pattern, dt_str.lower())
+        
+        if not time_match:
+            raise ValueError(f"Cannot parse time from: {dt_str}")
+        
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2)) if time_match.group(2) else 0
+        am_pm = time_match.group(3)
+        
+        if am_pm == 'pm' and hour < 12:
+            hour += 12
+        elif am_pm == 'am' and hour == 12:
+            hour = 0
+        
+        # Extract date component
+        dt_lower = dt_str.lower()
+        
+        if 'today' in dt_lower:
+            target_date = today
+        elif 'tomorrow' in dt_lower:
+            target_date = today + timedelta(days=1)
+        else:
+            # Check for weekday
+            weekdays = {
+                'monday': 0, 'mon': 0,
+                'tuesday': 1, 'tue': 1, 'tues': 1,
+                'wednesday': 2, 'wed': 2,
+                'thursday': 3, 'thu': 3, 'thur': 3,
+                'friday': 4, 'fri': 4,
+                'saturday': 5, 'sat': 5,
+                'sunday': 6, 'sun': 6
+            }
+            
+            target_date = None
+            for day_name, day_num in weekdays.items():
+                if day_name in dt_lower:
+                    current_weekday = today.weekday()
+                    days_ahead = (day_num - current_weekday) % 7
+                    if days_ahead == 0:
+                        if 'next' in dt_lower:
+                            days_ahead = 7
+                    target_date = today + timedelta(days=days_ahead)
+                    break
+            
+            if not target_date:
+                # Default to today if no date specified
+                target_date = today
+        
+        # Combine date and time
+        booking_dt = timezone.make_aware(
+            datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
+        )
+        
+        return booking_dt
     
     def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
         from apps.bookings.models import Booking
@@ -151,54 +242,105 @@ class CreateBookingTool(BaseTool):
         from apps.services.models import Service
         from apps.staff.models import StaffMember
         from apps.schedules.services.availability import AvailabilityService
+        import logging
+        logger = logging.getLogger(__name__)
         
         try:
             customer = Customer.objects.get(user=user)
-            shop = Shop.objects.get(id=kwargs['shop_id'], is_active=True)
-            service = Service.objects.get(id=kwargs['service_id'], shop=shop, is_active=True)
+            
+            # Get shop by ID or name
+            shop_id = kwargs.get('shop_id')
+            shop_name = kwargs.get('shop_name')
+            
+            if shop_id:
+                try:
+                    shop = Shop.objects.get(id=shop_id, is_active=True)
+                except (Shop.DoesNotExist, Exception):
+                    shop = Shop.objects.filter(name__icontains=shop_id, is_active=True).first()
+            elif shop_name:
+                shop = Shop.objects.filter(name__icontains=shop_name, is_active=True).first()
+            else:
+                return {"success": False, "error": "Please provide shop_id or shop_name"}
+            
+            if not shop:
+                return {"success": False, "error": "Shop not found"}
+            
+            # Get service by ID or name
+            service_id = kwargs.get('service_id')
+            service_name = kwargs.get('service_name')
+            
+            if service_id:
+                try:
+                    service = Service.objects.get(id=service_id, shop=shop, is_active=True)
+                except (Service.DoesNotExist, Exception):
+                    service = Service.objects.filter(name__icontains=service_id, shop=shop, is_active=True).first()
+            elif service_name:
+                service = Service.objects.filter(name__icontains=service_name, shop=shop, is_active=True).first()
+            else:
+                return {"success": False, "error": "Please provide service_id or service_name"}
+            
+            if not service:
+                return {"success": False, "error": f"Service not found at {shop.name}"}
             
             # Parse datetime
-            booking_dt_str = kwargs['booking_datetime']
-            booking_dt = datetime.fromisoformat(booking_dt_str.replace('Z', '+00:00'))
-            
-            if timezone.is_naive(booking_dt):
-                booking_dt = timezone.make_aware(booking_dt)
+            try:
+                booking_dt = self._parse_booking_datetime(kwargs['booking_datetime'])
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
             
             # Check if in the past
             if booking_dt < timezone.now():
                 return {"success": False, "error": "Cannot book in the past"}
             
-            # Check availability
-            availability_service = AvailabilityService(shop)
-            available_slots = availability_service.get_available_slots(
-                date=booking_dt.date(),
-                service_duration=service.duration_minutes
+            # Check availability using AvailabilityService
+            availability_service = AvailabilityService(
+                service_id=service.id,
+                target_date=booking_dt.date()
             )
+            available_slots = availability_service.get_available_slots()
             
-            # Verify the slot is available
+            # Verify the requested time is available
             slot_time = booking_dt.time()
             slot_available = any(
-                slot['start_time'] == slot_time
+                slot.start_time.time() == slot_time
                 for slot in available_slots
             )
             
             if not slot_available:
+                # Suggest alternative times
+                suggestions = [s.start_time.strftime('%I:%M %p') for s in available_slots[:5]]
+                suggestion_text = ", ".join(suggestions) if suggestions else "No slots available"
+                
                 return {
                     "success": False,
-                    "error": "The requested time slot is not available. Please check availability and choose a different time."
+                    "error": f"The requested time slot ({booking_dt.strftime('%I:%M %p')}) is not available.",
+                    "available_times": suggestion_text,
+                    "message": f"Available times on {booking_dt.strftime('%B %d')}: {suggestion_text}"
                 }
             
-            # Get staff member if specified
+            # Get staff member if specified, otherwise auto-assign
             staff_member = None
-            if kwargs.get('staff_member_id'):
+            staff_member_id = kwargs.get('staff_member_id')
+            staff_name = kwargs.get('staff_name')
+            
+            if staff_member_id:
                 try:
-                    staff_member = StaffMember.objects.get(
-                        id=kwargs['staff_member_id'],
-                        shop=shop,
-                        is_active=True
-                    )
+                    staff_member = StaffMember.objects.get(id=staff_member_id, shop=shop, is_active=True)
                 except StaffMember.DoesNotExist:
                     pass
+            elif staff_name:
+                staff_member = StaffMember.objects.filter(
+                    name__icontains=staff_name, shop=shop, is_active=True
+                ).first()
+            
+            # Auto-assign first available staff if not specified
+            if not staff_member:
+                staff_for_service = StaffMember.objects.filter(
+                    shop=shop, is_active=True, services=service
+                ).first()
+                if staff_for_service:
+                    staff_member = staff_for_service
+                    logger.info(f"Auto-assigned staff: {staff_member.name}")
             
             # Create the booking
             booking = Booking.objects.create(
@@ -218,24 +360,22 @@ class CreateBookingTool(BaseTool):
                 "booking": {
                     "booking_id": str(booking.id),
                     "shop": shop.name,
+                    "shop_id": str(shop.id),
                     "service": service.name,
+                    "service_id": str(service.id),
                     "datetime": booking_dt.isoformat(),
                     "formatted_datetime": booking_dt.strftime("%B %d, %Y at %I:%M %p"),
                     "price": float(service.price),
                     "status": booking.status,
-                    "staff": staff_member.name if staff_member else "To be assigned"
+                    "staff": staff_member.name if staff_member else "To be assigned",
+                    "staff_id": str(staff_member.id) if staff_member else None
                 }
             }
             
         except Customer.DoesNotExist:
             return {"success": False, "error": "Customer profile not found"}
-        except Shop.DoesNotExist:
-            return {"success": False, "error": "Shop not found"}
-        except Service.DoesNotExist:
-            return {"success": False, "error": "Service not found at this shop"}
-        except ValueError as e:
-            return {"success": False, "error": f"Invalid datetime format: {e}"}
         except Exception as e:
+            logger.error(f"Create booking error: {e}")
             return {"success": False, "error": str(e)}
 
 

@@ -28,24 +28,30 @@ class ContextBuilder:
         Build complete context object based on user role.
         
         Args:
-            user: User instance
-            role: User role (customer, client, staff)
+            user: User instance (can be None for guests)
+            role: User role (customer, client, staff, guest)
             session: Optional ChatSession for additional context
             
         Returns:
             Context dictionary
         """
         context = {
-            "user_info": self._get_user_info(user),
+            "user_info": self._get_user_info(user) if user else {"name": "Guest"},
             "current_datetime": timezone.now().isoformat(),
             "role": role,
         }
         
-        if role == 'customer':
+        if role == 'guest':
+            # Guest users get minimal context
+            context['is_authenticated'] = False
+        elif role == 'customer':
+            context['is_authenticated'] = True
             context.update(self._build_customer_context(user))
         elif role == 'client':
+            context['is_authenticated'] = True
             context.update(self._build_owner_context(user))
         elif role == 'staff':
+            context['is_authenticated'] = True
             context.update(self._build_staff_context(user))
         
         # Add conversation-specific context

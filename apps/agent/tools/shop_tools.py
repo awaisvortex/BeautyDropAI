@@ -12,9 +12,10 @@ class SearchShopsTool(BaseTool):
     name = "search_shops"
     description = """
     Search for shops by name, city, or service type.
-    Use this to help customers discover salons.
+    Returns shop IDs that can be used with other shop tools.
+    ALWAYS use this first to get shop IDs before calling get_shop_info, get_shop_services, etc.
     """
-    allowed_roles = ["customer"]
+    allowed_roles = ["customer", "client", "staff", "guest"]
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -38,12 +39,69 @@ class SearchShopsTool(BaseTool):
     
     def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
         from apps.shops.models import Shop
+        from apps.agent.services.embedding_service import EmbeddingService
+        from apps.agent.services.pinecone_service import PineconeService
+        import logging
+        logger = logging.getLogger(__name__)
         
         try:
-            shops = Shop.objects.filter(is_active=True)
-            
             query = kwargs.get('query', '')
+            city = kwargs.get('city', '')
+            limit = min(kwargs.get('limit', 10), 20)
+            
+            logger.info(f"search_shops called with query='{query}', city='{city}'")
+            
+            # If no query, return all shops
+            if not query and not city:
+                shops = Shop.objects.filter(is_active=True).order_by('-average_rating')[:limit]
+                shop_list = self._format_shops(shops)
+                logger.info(f"search_shops (no query) found {len(shop_list)} shops")
+                return {"success": True, "count": len(shop_list), "shops": shop_list}
+            
+            # Use semantic search with Pinecone
+            try:
+                embedding_service = EmbeddingService()
+                pinecone_service = PineconeService()
+                
+                # Generate embedding for query
+                query_embedding = embedding_service.get_embedding(query)
+                
+                # Build metadata filter for city if provided
+                metadata_filter = None
+                if city:
+                    metadata_filter = {"city": {"$eq": city}}
+                
+                # Search in Pinecone
+                results = pinecone_service.query(
+                    embedding=query_embedding,
+                    namespace=PineconeService.NAMESPACE_SHOPS,
+                    top_k=limit,
+                    filter=metadata_filter,
+                    min_score=0.3  # Lower threshold for broader matches
+                )
+                
+                logger.info(f"Pinecone returned {len(results)} semantic matches")
+                
+                if results:
+                    # Get shop IDs from Pinecone results
+                    shop_ids = [r['id'] for r in results]
+                    shops = Shop.objects.filter(id__in=shop_ids, is_active=True)
+                    
+                    # Maintain Pinecone's relevance ordering
+                    shop_dict = {str(s.id): s for s in shops}
+                    ordered_shops = [shop_dict[sid] for sid in shop_ids if sid in shop_dict]
+                    
+                    shop_list = self._format_shops(ordered_shops)
+                    logger.info(f"search_shops (semantic) found {len(shop_list)} shops")
+                    return {"success": True, "count": len(shop_list), "shops": shop_list, "search_type": "semantic"}
+                
+            except Exception as e:
+                logger.warning(f"Semantic search failed, falling back to keyword: {e}")
+            
+            # Fallback to keyword search
+            shops = Shop.objects.filter(is_active=True)
             if query:
+                from django.db.models import Q
                 shops = shops.filter(
                     Q(name__icontains=query) |
                     Q(description__icontains=query) |
@@ -51,33 +109,32 @@ class SearchShopsTool(BaseTool):
                     Q(services__name__icontains=query) |
                     Q(services__category__icontains=query)
                 ).distinct()
-            
-            city = kwargs.get('city')
             if city:
                 shops = shops.filter(city__icontains=city)
             
-            limit = min(kwargs.get('limit', 10), 20)
             shops = shops.order_by('-average_rating')[:limit]
-            
-            return {
-                "success": True,
-                "count": len(shops),
-                "shops": [
-                    {
-                        "id": str(s.id),
-                        "name": s.name,
-                        "city": s.city,
-                        "address": s.address,
-                        "rating": float(s.average_rating),
-                        "total_reviews": s.total_reviews,
-                        "is_verified": s.is_verified
-                    }
-                    for s in shops
-                ]
-            }
+            shop_list = self._format_shops(shops)
+            logger.info(f"search_shops (keyword fallback) found {len(shop_list)} shops")
+            return {"success": True, "count": len(shop_list), "shops": shop_list, "search_type": "keyword"}
             
         except Exception as e:
+            logger.error(f"search_shops error: {e}")
             return {"success": False, "error": str(e)}
+    
+    def _format_shops(self, shops) -> list:
+        """Format shop queryset to list of dicts."""
+        return [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "city": s.city,
+                "address": s.address,
+                "rating": float(s.average_rating),
+                "total_reviews": s.total_reviews,
+                "is_verified": s.is_verified
+            }
+            for s in shops
+        ]
 
 
 class GetShopInfoTool(BaseTool):
@@ -87,8 +144,9 @@ class GetShopInfoTool(BaseTool):
     description = """
     Get detailed information about a specific shop.
     Includes location, contact, hours, and ratings.
+    Requires shop_id (UUID) - use search_shops first to get the ID.
     """
-    allowed_roles = ["customer", "client", "staff"]
+    allowed_roles = ["customer", "client", "staff", "guest"]
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -97,10 +155,13 @@ class GetShopInfoTool(BaseTool):
             "properties": {
                 "shop_id": {
                     "type": "string",
-                    "description": "UUID of the shop"
+                    "description": "UUID of the shop (get this from search_shops first)"
+                },
+                "shop_name": {
+                    "type": "string",
+                    "description": "Alternative: Shop name if UUID not available"
                 }
-            },
-            "required": ["shop_id"]
+            }
         }
     
     def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
@@ -108,7 +169,23 @@ class GetShopInfoTool(BaseTool):
         from apps.schedules.models import ShopSchedule
         
         try:
-            shop = Shop.objects.get(id=kwargs['shop_id'], is_active=True)
+            # Try UUID first, then fall back to name search
+            shop_id = kwargs.get('shop_id')
+            shop_name = kwargs.get('shop_name')
+            
+            if shop_id:
+                try:
+                    shop = Shop.objects.get(id=shop_id, is_active=True)
+                except (Shop.DoesNotExist, Exception):
+                    # If UUID fails, try as name
+                    shop = Shop.objects.filter(name__icontains=shop_id, is_active=True).first()
+            elif shop_name:
+                shop = Shop.objects.filter(name__icontains=shop_name, is_active=True).first()
+            else:
+                return {"success": False, "error": "Please provide shop_id or shop_name"}
+            
+            if not shop:
+                return {"success": False, "error": "Shop not found"}
             
             # Get schedule
             schedules = ShopSchedule.objects.filter(shop=shop, is_active=True)
@@ -140,8 +217,6 @@ class GetShopInfoTool(BaseTool):
                 }
             }
             
-        except Shop.DoesNotExist:
-            return {"success": False, "error": "Shop not found"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -153,8 +228,9 @@ class GetShopServicesTool(BaseTool):
     description = """
     Get all services offered by a shop.
     Includes names, descriptions, prices, and durations.
+    Requires shop_id (UUID) - use search_shops first to get the ID.
     """
-    allowed_roles = ["customer", "client", "staff"]
+    allowed_roles = ["customer", "client", "staff", "guest"]
     
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -163,14 +239,17 @@ class GetShopServicesTool(BaseTool):
             "properties": {
                 "shop_id": {
                     "type": "string",
-                    "description": "UUID of the shop"
+                    "description": "UUID of the shop (get this from search_shops first)"
+                },
+                "shop_name": {
+                    "type": "string",
+                    "description": "Alternative: Shop name if UUID not available"
                 },
                 "category": {
                     "type": "string",
                     "description": "Optional: Filter by category"
                 }
-            },
-            "required": ["shop_id"]
+            }
         }
     
     def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
@@ -178,7 +257,24 @@ class GetShopServicesTool(BaseTool):
         from apps.services.models import Service
         
         try:
-            shop = Shop.objects.get(id=kwargs['shop_id'], is_active=True)
+            # Try UUID first, then fall back to name search
+            shop_id = kwargs.get('shop_id')
+            shop_name = kwargs.get('shop_name')
+            
+            if shop_id:
+                try:
+                    shop = Shop.objects.get(id=shop_id, is_active=True)
+                except (Shop.DoesNotExist, Exception):
+                    # If UUID fails, try as name
+                    shop = Shop.objects.filter(name__icontains=shop_id, is_active=True).first()
+            elif shop_name:
+                shop = Shop.objects.filter(name__icontains=shop_name, is_active=True).first()
+            else:
+                return {"success": False, "error": "Please provide shop_id or shop_name"}
+            
+            if not shop:
+                return {"success": False, "error": "Shop not found"}
+            
             services = Service.objects.filter(shop=shop, is_active=True)
             
             category = kwargs.get('category')
@@ -203,8 +299,6 @@ class GetShopServicesTool(BaseTool):
                 ]
             }
             
-        except Shop.DoesNotExist:
-            return {"success": False, "error": "Shop not found"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

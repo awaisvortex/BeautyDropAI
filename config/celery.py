@@ -25,6 +25,28 @@ app.conf.beat_schedule = {
         'task': 'apps.notifications.tasks.send_booking_reminders_task',
         'schedule': crontab(minute=0),  # Run at the start of every hour
     },
+    
+    # Sync knowledge base to Pinecone every hour
+    # Catches any items that failed real-time sync
+    'sync-knowledge-base-hourly': {
+        'task': 'agent.sync_knowledge_base',
+        'schedule': crontab(minute=30),  # Run at 30 minutes past every hour
+        'kwargs': {'full_sync': False},  # Incremental sync (only items needing resync)
+    },
+    
+    # Full knowledge base sync daily at 3am
+    # Complete sync to ensure data consistency
+    'sync-knowledge-base-daily': {
+        'task': 'agent.sync_knowledge_base',
+        'schedule': crontab(hour=3, minute=0),  # Run at 3am daily
+        'kwargs': {'full_sync': True},
+    },
+    
+    # Cleanup deleted/inactive items weekly
+    'cleanup-knowledge-base-weekly': {
+        'task': 'agent.cleanup_knowledge_base',
+        'schedule': crontab(hour=4, minute=0, day_of_week='sunday'),  # Sunday 4am
+    },
 }
 
 app.conf.timezone = 'UTC'

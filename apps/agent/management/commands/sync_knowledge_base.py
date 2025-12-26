@@ -4,6 +4,7 @@ Management command to sync shop/service data to Pinecone knowledge base.
 import logging
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+from django.db import models
 
 from apps.shops.models import Shop
 from apps.services.models import Service
@@ -38,6 +39,11 @@ class Command(BaseCommand):
             action='store_true',
             help='Show what would be synced without actually syncing'
         )
+        parser.add_argument(
+            '--cleanup-only',
+            action='store_true',
+            help='Only remove deleted/inactive items from Pinecone without syncing'
+        )
     
     def handle(self, *args, **options):
         self.stdout.write('Starting knowledge base sync...')
@@ -48,6 +54,15 @@ class Command(BaseCommand):
         shops_synced = 0
         services_synced = 0
         errors = 0
+        
+        # If cleanup-only, skip straight to cleanup
+        if options.get('cleanup_only'):
+            self.stdout.write('Running cleanup-only mode...')
+            shops_removed, services_removed = self._run_cleanup(pinecone_service)
+            self.stdout.write(self.style.SUCCESS('Cleanup completed!'))
+            self.stdout.write(f'  Shops removed: {shops_removed}')
+            self.stdout.write(f'  Services removed: {services_removed}')
+            return
         
         # Determine what to sync
         if options['shop_id']:
@@ -161,13 +176,106 @@ class Command(BaseCommand):
                     errors += 1
                     logger.error(f'Error syncing service {service.id}: {e}')
         
+        # CLEANUP PHASE: Remove deleted/inactive items from Pinecone
+        shops_removed = 0
+        services_removed = 0
+        
+        if options['full'] and not options['dry_run']:
+            self.stdout.write('\nCleaning up deleted/inactive items...')
+            shops_removed, services_removed = self._run_cleanup(pinecone_service)
+        
         # Summary
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS(f'Sync completed!'))
         self.stdout.write(f'  Shops synced: {shops_synced}')
         self.stdout.write(f'  Services synced: {services_synced}')
+        if shops_removed or services_removed:
+            self.stdout.write(f'  Shops removed from Pinecone: {shops_removed}')
+            self.stdout.write(f'  Services removed from Pinecone: {services_removed}')
         if errors:
             self.stdout.write(self.style.WARNING(f'  Errors: {errors}'))
+    
+    def _run_cleanup(self, pinecone_service) -> tuple:
+        """
+        Remove deleted/inactive shops and services from Pinecone.
+        Returns tuple of (shops_removed, services_removed).
+        """
+        shops_removed = 0
+        services_removed = 0
+        
+        # Get IDs of active shops/services
+        active_shop_ids = set(str(s.id) for s in Shop.objects.filter(is_active=True))
+        active_service_ids = set(str(s.id) for s in Service.objects.filter(
+            is_active=True, shop__is_active=True
+        ))
+        
+        # Find orphaned shop documents (in KnowledgeDocument but shop deleted/not active)
+        orphaned_shop_docs = KnowledgeDocument.objects.filter(
+            doc_type='shop'
+        ).exclude(shop_id__in=Shop.objects.filter(is_active=True).values_list('id', flat=True))
+        
+        for doc in orphaned_shop_docs:
+            try:
+                if doc.pinecone_id:
+                    success = pinecone_service.delete([doc.pinecone_id], namespace=PineconeService.NAMESPACE_SHOPS)
+                    if success:
+                        shops_removed += 1
+                        self.stdout.write(f'  Removed orphaned shop: {doc.pinecone_id}')
+                doc.delete()
+            except Exception as e:
+                logger.error(f'Error removing orphaned shop doc {doc.id}: {e}')
+        
+        # Find orphaned service documents
+        orphaned_service_docs = KnowledgeDocument.objects.filter(
+            doc_type='service'
+        ).exclude(service_id__in=Service.objects.filter(
+            is_active=True, shop__is_active=True
+        ).values_list('id', flat=True))
+        
+        for doc in orphaned_service_docs:
+            try:
+                if doc.pinecone_id:
+                    success = pinecone_service.delete([doc.pinecone_id], namespace=PineconeService.NAMESPACE_SERVICES)
+                    if success:
+                        services_removed += 1
+                        self.stdout.write(f'  Removed orphaned service: {doc.pinecone_id}')
+                doc.delete()
+            except Exception as e:
+                logger.error(f'Error removing orphaned service doc {doc.id}: {e}')
+        
+        # Check for shops that were set to inactive but still have knowledge docs
+        inactive_shop_docs = KnowledgeDocument.objects.filter(
+            doc_type='shop',
+            shop__is_active=False
+        )
+        for doc in inactive_shop_docs:
+            try:
+                if doc.pinecone_id:
+                    pinecone_service.delete([doc.pinecone_id], namespace=PineconeService.NAMESPACE_SHOPS)
+                    shops_removed += 1
+                    self.stdout.write(f'  Removed inactive shop: {doc.shop.name if doc.shop else doc.pinecone_id}')
+                doc.delete()
+            except Exception as e:
+                logger.error(f'Error removing inactive shop doc: {e}')
+        
+        # Remove services from inactive shops or inactive services
+        inactive_service_docs = KnowledgeDocument.objects.filter(
+            doc_type='service'
+        ).filter(
+            models.Q(service__is_active=False) | 
+            models.Q(service__shop__is_active=False) |
+            models.Q(service__isnull=True)
+        )
+        for doc in inactive_service_docs:
+            try:
+                if doc.pinecone_id:
+                    pinecone_service.delete([doc.pinecone_id], namespace=PineconeService.NAMESPACE_SERVICES)
+                    services_removed += 1
+                doc.delete()
+            except Exception as e:
+                logger.error(f'Error removing inactive service doc: {e}')
+        
+        return shops_removed, services_removed
     
     def _build_shop_content(self, shop) -> str:
         """Build content text for shop embedding."""
