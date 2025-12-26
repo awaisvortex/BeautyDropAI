@@ -77,7 +77,7 @@ class SearchShopsTool(BaseTool):
                     namespace=PineconeService.NAMESPACE_SHOPS,
                     top_k=limit,
                     filter=metadata_filter,
-                    min_score=0.3  # Lower threshold for broader matches
+                    min_score=0.2  # Lower threshold for broader matches
                 )
                 
                 logger.info(f"Pinecone returned {len(results)} semantic matches")
