@@ -8,13 +8,15 @@ from .base import BaseTool
 
 
 class GetMyBookingsTool(BaseTool):
-    """Get customer's bookings."""
+    """Get customer's or staff's bookings."""
     
     name = "get_my_bookings"
     description = """
     Get the user's bookings. For customers, shows their appointments.
     For staff, shows their assigned bookings.
     Can filter by status and time period.
+    Always list ALL bookings returned in your response.
+    If there are more than 10 bookings, mention the total count and suggest filtering by status or date.
     """
     allowed_roles = ["customer", "staff"]
     
@@ -35,7 +37,7 @@ class GetMyBookingsTool(BaseTool):
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of bookings to return. Default: 10"
+                    "description": "Maximum number of bookings to return. Default: 10, Max: 20"
                 }
             }
         }
@@ -59,7 +61,7 @@ class GetMyBookingsTool(BaseTool):
             else:
                 return {"success": False, "error": "Invalid role for this tool"}
             
-            bookings = bookings.select_related('shop', 'service', 'staff_member')
+            bookings = bookings.select_related('shop', 'service', 'staff_member', 'customer__user')
             
             # Apply status filter
             if status != 'all':
@@ -76,26 +78,45 @@ class GetMyBookingsTool(BaseTool):
             elif time_filter == 'today':
                 bookings = bookings.filter(booking_datetime__date=today)
             
+            # Get total count before limiting
+            total_count = bookings.count()
+            
             bookings = bookings.order_by('booking_datetime')[:limit]
             
             booking_list = []
             for b in bookings:
-                booking_list.append({
+                booking_data = {
                     "booking_id": str(b.id),
                     "shop": b.shop.name,
                     "shop_id": str(b.shop.id),
                     "service": b.service.name,
                     "datetime": b.booking_datetime.isoformat(),
                     "formatted_datetime": b.booking_datetime.strftime("%B %d, %Y at %I:%M %p"),
+                    "formatted_time": b.booking_datetime.strftime("%I:%M %p"),
+                    "formatted_date": b.booking_datetime.strftime("%B %d, %Y"),
                     "price": float(b.total_price),
                     "status": b.status,
                     "staff": b.staff_member.name if b.staff_member else None
-                })
+                }
+                
+                # Include customer info for staff
+                if role == 'staff' and b.customer:
+                    booking_data["customer_name"] = b.customer.user.full_name
+                    booking_data["customer_email"] = b.customer.user.email
+                
+                booking_list.append(booking_data)
             
             return {
                 "success": True,
-                "count": len(booking_list),
-                "bookings": booking_list
+                "total_count": total_count,
+                "showing": len(booking_list),
+                "has_more": total_count > limit,
+                "filter_applied": {
+                    "status": status,
+                    "time_filter": time_filter
+                },
+                "bookings": booking_list,
+                "message": f"Found {total_count} booking(s)." if total_count > 0 else "No bookings found matching your criteria."
             }
             
         except (Customer.DoesNotExist, StaffMember.DoesNotExist):
@@ -379,8 +400,185 @@ class CreateBookingTool(BaseTool):
             return {"success": False, "error": str(e)}
 
 
+class RescheduleMyBookingTool(BaseTool):
+    """Reschedule a customer's own booking."""
+    
+    name = "reschedule_my_booking"
+    description = """
+    Reschedule your own booking to a new date and time.
+    Checks availability before rescheduling.
+    Use when customer asks to change their appointment time.
+    """
+    allowed_roles = ["customer"]
+    
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "booking_id": {
+                    "type": "string",
+                    "description": "UUID of the booking to reschedule"
+                },
+                "new_datetime": {
+                    "type": "string",
+                    "description": "New date and time (e.g., 'tomorrow at 2pm', '2024-12-28 14:00')"
+                }
+            },
+            "required": ["booking_id", "new_datetime"]
+        }
+    
+    def _parse_datetime(self, dt_str: str):
+        """Parse datetime from various formats."""
+        from datetime import timedelta
+        import re
+        
+        dt_str = dt_str.strip()
+        
+        # Try ISO format first
+        try:
+            dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt)
+            return dt
+        except ValueError:
+            pass
+        
+        today = timezone.now().date()
+        
+        # Extract time
+        time_pattern = r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)?'
+        time_match = re.search(time_pattern, dt_str.lower())
+        
+        if not time_match:
+            raise ValueError(f"Cannot parse time from: {dt_str}")
+        
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2)) if time_match.group(2) else 0
+        am_pm = time_match.group(3)
+        
+        if am_pm == 'pm' and hour < 12:
+            hour += 12
+        elif am_pm == 'am' and hour == 12:
+            hour = 0
+        
+        # Extract date
+        dt_lower = dt_str.lower()
+        
+        if 'today' in dt_lower:
+            target_date = today
+        elif 'tomorrow' in dt_lower:
+            target_date = today + timedelta(days=1)
+        else:
+            weekdays = {
+                'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3,
+                'friday': 4, 'saturday': 5, 'sunday': 6
+            }
+            
+            target_date = None
+            for day_name, day_num in weekdays.items():
+                if day_name in dt_lower:
+                    current_weekday = today.weekday()
+                    days_ahead = (day_num - current_weekday) % 7
+                    if days_ahead == 0:
+                        days_ahead = 7
+                    target_date = today + timedelta(days=days_ahead)
+                    break
+            
+            if not target_date:
+                target_date = today
+        
+        return timezone.make_aware(
+            datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
+        )
+    
+    def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
+        from apps.bookings.models import Booking
+        from apps.customers.models import Customer
+        from apps.schedules.services.availability import AvailabilityService
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            customer = Customer.objects.get(user=user)
+            
+            booking = Booking.objects.select_related('shop', 'service').get(
+                id=kwargs['booking_id']
+            )
+            
+            # Verify it's the customer's booking
+            if booking.customer != customer:
+                return {"success": False, "error": "This is not your booking"}
+            
+            if booking.status == 'cancelled':
+                return {"success": False, "error": "Cannot reschedule a cancelled booking"}
+            if booking.status == 'completed':
+                return {"success": False, "error": "Cannot reschedule a completed booking"}
+            
+            # Parse new datetime
+            try:
+                new_dt = self._parse_datetime(kwargs['new_datetime'])
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
+            
+            if new_dt < timezone.now():
+                return {"success": False, "error": "Cannot reschedule to a past time"}
+            
+            # Check availability
+            availability_service = AvailabilityService(
+                service_id=booking.service.id,
+                target_date=new_dt.date()
+            )
+            available_slots = availability_service.get_available_slots()
+            
+            slot_time = new_dt.time()
+            slot_available = any(
+                slot.start_time.time() == slot_time
+                for slot in available_slots
+            )
+            
+            if not slot_available:
+                suggestions = [s.start_time.strftime('%I:%M %p') for s in available_slots[:5]]
+                return {
+                    "success": False,
+                    "error": f"The requested time ({new_dt.strftime('%I:%M %p')}) is not available.",
+                    "available_times": suggestions,
+                    "message": f"Available times on {new_dt.strftime('%B %d')}: {', '.join(suggestions) if suggestions else 'None'}"
+                }
+            
+            # Update booking
+            old_datetime = booking.booking_datetime
+            booking.booking_datetime = new_dt
+            booking.save()
+            
+            logger.info(f"Customer rescheduled booking {booking.id} from {old_datetime} to {new_dt}")
+            
+            return {
+                "success": True,
+                "message": f"Your appointment has been rescheduled from {old_datetime.strftime('%B %d at %I:%M %p')} to {new_dt.strftime('%B %d at %I:%M %p')}",
+                "booking": {
+                    "booking_id": str(booking.id),
+                    "service": booking.service.name,
+                    "shop": booking.shop.name,
+                    "old_datetime": old_datetime.isoformat(),
+                    "new_datetime": new_dt.isoformat(),
+                    "formatted_new_datetime": new_dt.strftime("%B %d, %Y at %I:%M %p"),
+                    "staff": booking.staff_member.name if booking.staff_member else "To be assigned"
+                }
+            }
+            
+        except Booking.DoesNotExist:
+            return {"success": False, "error": "Booking not found"}
+        except Customer.DoesNotExist:
+            return {"success": False, "error": "Customer profile not found"}
+        except Exception as e:
+            logger.error(f"reschedule_my_booking error: {e}")
+            return {"success": False, "error": str(e)}
+
+
 class CancelBookingTool(BaseTool):
     """Cancel a booking."""
+    
     
     name = "cancel_booking"
     description = """
