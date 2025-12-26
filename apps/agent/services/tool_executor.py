@@ -10,6 +10,7 @@ from apps.agent.tools.base import BaseTool
 from apps.agent.tools.booking_tools import (
     GetMyBookingsTool,
     CreateBookingTool,
+    RescheduleMyBookingTool,
     CancelBookingTool,
     GetShopBookingsTool,
     ConfirmBookingTool
@@ -19,12 +20,34 @@ from apps.agent.tools.shop_tools import (
     GetShopInfoTool,
     GetShopServicesTool,
     GetShopStaffTool,
-    GetMyShopsTool
+    GetMyShopsTool,
+    GetMyStaffTool
 )
 from apps.agent.tools.schedule_tools import (
     GetAvailableSlotsTool,
     GetShopHoursTool,
     GetShopHolidaysTool
+)
+from apps.agent.tools.management_tools import (
+    CreateHolidayTool,
+    DeleteHolidayTool,
+    CreateStaffTool,
+    UpdateStaffTool,
+    CreateServiceTool,
+    UpdateServiceTool,
+    DeleteServiceTool,
+    RescheduleBookingTool,
+    AssignStaffToServiceTool,
+    RemoveStaffFromServiceTool,
+    UpdateShopHoursTool,
+    GetShopAnalyticsTool
+)
+from apps.agent.tools.staff_tools import (
+    CompleteBookingTool,
+    GetMyScheduleTool,
+    GetCustomerHistoryTool,
+    GetMyServicesTool,
+    GetTodaySummaryTool
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +58,7 @@ ALL_TOOLS: List[BaseTool] = [
     # Booking tools
     GetMyBookingsTool(),
     CreateBookingTool(),
+    RescheduleMyBookingTool(),
     CancelBookingTool(),
     GetShopBookingsTool(),
     ConfirmBookingTool(),
@@ -44,10 +68,30 @@ ALL_TOOLS: List[BaseTool] = [
     GetShopServicesTool(),
     GetShopStaffTool(),
     GetMyShopsTool(),
+    GetMyStaffTool(),
     # Schedule tools
     GetAvailableSlotsTool(),
     GetShopHoursTool(),
     GetShopHolidaysTool(),
+    # Management tools (client only)
+    CreateHolidayTool(),
+    DeleteHolidayTool(),
+    CreateStaffTool(),
+    UpdateStaffTool(),
+    CreateServiceTool(),
+    UpdateServiceTool(),
+    DeleteServiceTool(),
+    RescheduleBookingTool(),
+    AssignStaffToServiceTool(),
+    RemoveStaffFromServiceTool(),
+    UpdateShopHoursTool(),
+    GetShopAnalyticsTool(),
+    # Staff tools
+    CompleteBookingTool(),
+    GetMyScheduleTool(),
+    GetCustomerHistoryTool(),
+    GetMyServicesTool(),
+    GetTodaySummaryTool(),
 ]
 
 
