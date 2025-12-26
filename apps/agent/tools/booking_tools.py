@@ -8,13 +8,15 @@ from .base import BaseTool
 
 
 class GetMyBookingsTool(BaseTool):
-    """Get customer's bookings."""
+    """Get customer's or staff's bookings."""
     
     name = "get_my_bookings"
     description = """
     Get the user's bookings. For customers, shows their appointments.
     For staff, shows their assigned bookings.
     Can filter by status and time period.
+    Always list ALL bookings returned in your response.
+    If there are more than 10 bookings, mention the total count and suggest filtering by status or date.
     """
     allowed_roles = ["customer", "staff"]
     
@@ -35,7 +37,7 @@ class GetMyBookingsTool(BaseTool):
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of bookings to return. Default: 10"
+                    "description": "Maximum number of bookings to return. Default: 10, Max: 20"
                 }
             }
         }
@@ -59,7 +61,7 @@ class GetMyBookingsTool(BaseTool):
             else:
                 return {"success": False, "error": "Invalid role for this tool"}
             
-            bookings = bookings.select_related('shop', 'service', 'staff_member')
+            bookings = bookings.select_related('shop', 'service', 'staff_member', 'customer__user')
             
             # Apply status filter
             if status != 'all':
@@ -76,26 +78,45 @@ class GetMyBookingsTool(BaseTool):
             elif time_filter == 'today':
                 bookings = bookings.filter(booking_datetime__date=today)
             
+            # Get total count before limiting
+            total_count = bookings.count()
+            
             bookings = bookings.order_by('booking_datetime')[:limit]
             
             booking_list = []
             for b in bookings:
-                booking_list.append({
+                booking_data = {
                     "booking_id": str(b.id),
                     "shop": b.shop.name,
                     "shop_id": str(b.shop.id),
                     "service": b.service.name,
                     "datetime": b.booking_datetime.isoformat(),
                     "formatted_datetime": b.booking_datetime.strftime("%B %d, %Y at %I:%M %p"),
+                    "formatted_time": b.booking_datetime.strftime("%I:%M %p"),
+                    "formatted_date": b.booking_datetime.strftime("%B %d, %Y"),
                     "price": float(b.total_price),
                     "status": b.status,
                     "staff": b.staff_member.name if b.staff_member else None
-                })
+                }
+                
+                # Include customer info for staff
+                if role == 'staff' and b.customer:
+                    booking_data["customer_name"] = b.customer.user.full_name
+                    booking_data["customer_email"] = b.customer.user.email
+                
+                booking_list.append(booking_data)
             
             return {
                 "success": True,
-                "count": len(booking_list),
-                "bookings": booking_list
+                "total_count": total_count,
+                "showing": len(booking_list),
+                "has_more": total_count > limit,
+                "filter_applied": {
+                    "status": status,
+                    "time_filter": time_filter
+                },
+                "bookings": booking_list,
+                "message": f"Found {total_count} booking(s)." if total_count > 0 else "No bookings found matching your criteria."
             }
             
         except (Customer.DoesNotExist, StaffMember.DoesNotExist):

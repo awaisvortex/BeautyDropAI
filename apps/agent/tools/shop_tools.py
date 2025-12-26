@@ -137,6 +137,83 @@ class SearchShopsTool(BaseTool):
         ]
 
 
+class GetMyShopsTool(BaseTool):
+    """Get shops owned by the current client."""
+    
+    name = "get_my_shops"
+    description = """
+    Get all shops owned/managed by the current client/shop owner.
+    Returns a list of shops with their basic info.
+    Use this to answer questions like 'how many shops do I have', 'list my shops', etc.
+    Always list ALL shops returned by this tool in your response.
+    If there are more than 5 shops, mention the total count and suggest visiting the shop browsing page to see all.
+    """
+    allowed_roles = ["client"]
+    
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "include_inactive": {
+                    "type": "boolean",
+                    "description": "Include inactive shops. Default: False"
+                }
+            }
+        }
+    
+    def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
+        from apps.shops.models import Shop
+        from apps.clients.models import Client
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            client = Client.objects.get(user=user)
+            
+            include_inactive = kwargs.get('include_inactive', False)
+            
+            if include_inactive:
+                shops = Shop.objects.filter(client=client)
+            else:
+                shops = Shop.objects.filter(client=client, is_active=True)
+            
+            total_count = shops.count()
+            shops = shops.order_by('-created_at')[:5]  # Limit to 5 for display
+            
+            shop_list = []
+            for s in shops:
+                shop_list.append({
+                    "id": str(s.id),
+                    "name": s.name,
+                    "address": s.address,
+                    "city": s.city,
+                    "phone": s.phone,
+                    "is_active": s.is_active,
+                    "is_verified": s.is_verified,
+                    "average_rating": float(s.average_rating),
+                    "total_reviews": s.total_reviews,
+                    "created_at": s.created_at.isoformat() if s.created_at else None
+                })
+            
+            logger.info(f"get_my_shops found {total_count} shops for client {client.id}")
+            
+            return {
+                "success": True,
+                "total_count": total_count,
+                "showing": len(shop_list),
+                "has_more": total_count > 5,
+                "shops": shop_list,
+                "message": f"You have {total_count} shop(s) set up." if total_count > 0 else "You haven't set up any shops yet."
+            }
+            
+        except Client.DoesNotExist:
+            return {"success": False, "error": "Client profile not found"}
+        except Exception as e:
+            logger.error(f"get_my_shops error: {e}")
+            return {"success": False, "error": str(e)}
+
+
 class GetShopInfoTool(BaseTool):
     """Get detailed shop information."""
     

@@ -18,7 +18,8 @@ from apps.agent.tools.shop_tools import (
     SearchShopsTool,
     GetShopInfoTool,
     GetShopServicesTool,
-    GetShopStaffTool
+    GetShopStaffTool,
+    GetMyShopsTool
 )
 from apps.agent.tools.schedule_tools import (
     GetAvailableSlotsTool,
@@ -42,6 +43,7 @@ ALL_TOOLS: List[BaseTool] = [
     GetShopInfoTool(),
     GetShopServicesTool(),
     GetShopStaffTool(),
+    GetMyShopsTool(),
     # Schedule tools
     GetAvailableSlotsTool(),
     GetShopHoursTool(),
