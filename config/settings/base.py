@@ -2,6 +2,7 @@
 Django base settings for Beauty Drop AI.
 """
 import os
+import ssl
 from pathlib import Path
 from datetime import timedelta
 import environ
@@ -262,7 +263,7 @@ CACHES = {
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             'CONNECTION_POOL_KWARGS': {
-                'ssl_cert_reqs': None  # This handles the 'CERT_NONE' requirement for Upstash
+                'ssl_cert_reqs': ssl.CERT_NONE
             }
         }
     }

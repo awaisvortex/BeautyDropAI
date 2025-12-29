@@ -38,7 +38,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --region "${REGION}" \
   --platform managed \
   --project "${PROJECT_ID}" \
-  --set-env-vars "DJANGO_SETTINGS_MODULE=config.settings.production"
+  --update-env-vars "DJANGO_SETTINGS_MODULE=config.settings.production"
 echo "✅ Deployed"
 echo ""
 

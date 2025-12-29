@@ -47,7 +47,7 @@ steps:
       - "300"
       - "--port"
       - "8080"
-      - "--set-env-vars"
+      - "--update-env-vars"
       - "DJANGO_SETTINGS_MODULE=config.settings.production"
 
 # Store images in Artifact Registry
