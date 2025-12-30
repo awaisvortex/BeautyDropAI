@@ -267,8 +267,11 @@ class CreateBookingTool(BaseTool):
         logger = logging.getLogger(__name__)
         
         try:
-            logger.info(f"CreateBookingTool executing for user: {user.email}")
+            logger.info(f"CreateBookingTool executing for user: {user.email if user else 'None'}")
             logger.info(f"Arguments received: {kwargs}")
+
+            if not user or not user.is_authenticated:
+                return {"success": False, "error": "User must be logged in to create a booking"}
 
             # Get or create customer profile
             customer, created = Customer.objects.get_or_create(user=user)
@@ -506,6 +509,9 @@ class RescheduleMyBookingTool(BaseTool):
         logger = logging.getLogger(__name__)
         
         try:
+            if not user or not user.is_authenticated:
+                return {"success": False, "error": "User must be logged in"}
+
             customer = Customer.objects.get(user=user)
             
             booking = Booking.objects.select_related('shop', 'service').get(
@@ -619,6 +625,9 @@ class CancelBookingTool(BaseTool):
         try:
             booking_id = kwargs['booking_id']
             booking = Booking.objects.select_related('shop', 'service').get(id=booking_id)
+            
+            if not user or not user.is_authenticated:
+                return {"success": False, "error": "User must be logged in"}
             
             # Permission check
             if role == 'customer':

@@ -281,15 +281,26 @@
             <input type="text" id="wsUrl" value="ws://localhost:8004/ws/voice/" />
         </div>
         
-        <div class="status-bar">
-            <div class="status-dot" id="statusDot"></div>
-            <span class="status-text" id="statusText">Click the microphone to start</span>
+        <div class="config-section">
+            <label>Debug User Email (Local Only)</label>
+            <input type="text" id="debugEmail" value="zeerak.abbas@artilence.com" onchange="updateWsUrl()" placeholder="Enter email to impersonate">
+        </div>
+
+        <div class="controls" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+            <button class="send-btn" id="connectBtn" onclick="toggleConnection()">Connect</button>
+            <div class="status-bar" style="flex-grow: 1;">
+                <div class="status-dot" id="statusDot"></div>
+                <span class="status-text" id="statusText">Click the microphone to start</span>
+            </div>
         </div>
         
         <div id="agentInfo" style="display: none; padding: 0.5rem 1rem; background: rgba(139, 92, 246, 0.2); border-radius: 0.5rem; margin-bottom: 1rem; font-size: 0.8rem;">
             <strong>Agent:</strong> <span id="currentAgentType">-</span> | 
             <strong>Shop:</strong> <span id="currentShopName">-</span> |
-            <strong>Role:</strong> <span id="currentUserRole">-</span>
+            <strong>Agent:</strong> <span id="currentAgentType">-</span> | 
+            <strong>Shop:</strong> <span id="currentShopName">-</span> |
+            <strong>Role:</strong> <span id="currentUserRole">-</span> |
+            <strong>Auth:</strong> <span id="authStatus">-</span>
         </div>
         
         <div class="instructions">
@@ -326,15 +337,25 @@
             const shopIdSection = document.getElementById('shopIdSection');
             const shopId = document.getElementById('shopId').value;
             const wsUrlInput = document.getElementById('wsUrl');
+            const debugEmail = document.getElementById('debugEmail').value;
+            
             const baseUrl = 'ws://localhost:8004/ws/voice/';
+            let url = baseUrl;
             
             if (agentType === 'shop') {
                 shopIdSection.style.display = 'block';
-                wsUrlInput.value = `${baseUrl}shop/${shopId}/`;
+                url = `${baseUrl}shop/${shopId}/`;
             } else {
                 shopIdSection.style.display = 'none';
-                wsUrlInput.value = baseUrl;
+                url = baseUrl;
             }
+            
+            if (debugEmail) {
+                // Add query param
+                url += `?debug_email=${encodeURIComponent(debugEmail)}`;
+            }
+            
+            wsUrlInput.value = url;
         }
     </script>
     
@@ -371,6 +392,8 @@
         }
         
         function connect() {
+            // Ensure URL is updated with debug email before connecting
+            updateWsUrl();
             const url = document.getElementById('wsUrl').value;
             updateStatus('connecting', 'Connecting...');
             
@@ -411,6 +434,16 @@
                         document.getElementById('currentAgentType').textContent = data.agent_type || 'master';
                         document.getElementById('currentShopName').textContent = data.shop_name || 'None';
                         document.getElementById('currentUserRole').textContent = data.user_role || 'guest';
+                        
+                        const authStatusEl = document.getElementById('authStatus');
+                        if (data.is_authenticated) {
+                            authStatusEl.textContent = '✅ Authenticated';
+                            authStatusEl.style.color = '#10b981'; // Green
+                        } else {
+                            authStatusEl.textContent = '⚠️ Guest';
+                            authStatusEl.style.color = '#f59e0b'; // Yellow
+                        }
+
                         addMessage('system', `Connected as ${data.agent_type || 'master'} agent` + 
                             (data.shop_name ? ` (${data.shop_name})` : ''));
                     }
@@ -637,8 +670,15 @@
             if (e.key === 'Enter') sendText();
         });
         
-        // Auto-connect on load
-        // connect();
+        // Initialize URL on page load to include debug email
+        document.addEventListener('DOMContentLoaded', () => {
+            updateWsUrl();
+        });
+        
+        // Also call immediately in case DOM is already loaded
+        if (document.readyState !== 'loading') {
+            updateWsUrl();
+        }
     </script>
 </body>
 </html>

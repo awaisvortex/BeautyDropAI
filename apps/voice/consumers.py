@@ -11,6 +11,7 @@ import time
 import uuid
 from urllib.parse import parse_qs
 
+from django.conf import settings
 from apps.authentication.middleware import get_user_from_auth_header
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -88,6 +89,18 @@ class VoiceConsumer(AsyncWebsocketConsumer):
                         logger.info(f"WebSocket authenticated via token: {self.user.email}")
                 except Exception as e:
                     logger.error(f"Token authentication failed: {e}")
+
+        # DEBUG ONLY: Allow impersonation for local testing
+        if not self.user and settings.DEBUG:
+            debug_email = query_params.get('debug_email', [None])[0]
+            if debug_email:
+                try:
+                    from apps.authentication.models import User
+                    user = await database_sync_to_async(User.objects.get)(email=debug_email)
+                    self.user = user
+                    logger.warning(f"DEBUG: Impersonating user {debug_email} for WebSocket session")
+                except Exception as e:
+                    logger.error(f"DEBUG: Failed to impersonate user {debug_email}: {e}")
         
         requested_agent = query_params.get('agent', ['master'])[0]
         shop_id = query_params.get('shop_id', [None])[0]
@@ -169,9 +182,10 @@ class VoiceConsumer(AsyncWebsocketConsumer):
             on_tool_call=self._on_tool_call
         )
         
-        # Set agent-specific configuration
-        system_prompt = self.agent.get_system_prompt()
-        tools = self.agent.get_tools()
+        # Set agent-specific configuration (wrap sync DB calls)
+        from asgiref.sync import sync_to_async
+        system_prompt = await sync_to_async(self.agent.get_system_prompt, thread_sensitive=True)()
+        tools = await sync_to_async(self.agent.get_tools, thread_sensitive=True)()
         
         success = await self.openai_client.connect(
             system_prompt=system_prompt,
@@ -187,6 +201,7 @@ class VoiceConsumer(AsyncWebsocketConsumer):
                 "agent_type": self.agent_type,
                 "shop_name": self.shop.name if self.shop else None,
                 "user_role": self.user_role,
+                "is_authenticated": bool(self.user and self.user.is_authenticated),
                 "message": message
             })
             
