@@ -11,6 +11,7 @@ import time
 import uuid
 from urllib.parse import parse_qs
 
+from apps.authentication.middleware import get_user_from_auth_header
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.utils import timezone
@@ -28,12 +29,13 @@ class VoiceConsumer(AsyncWebsocketConsumer):
     Connection URLs:
     - /ws/voice/ - Master agent (home/browse pages)
     - /ws/voice/shop/{shop_id}/ - Shop agent (shop pages)
-    - /ws/voice/?agent=shop&shop_id={uuid} - Alternative shop agent connection
+    - /ws/voice/?agent=shop&shop_id={uuid}&token={jwt} - Alternative shop agent connection
     
     Protocol:
     - Client sends: {"type": "audio", "data": "<base64 pcm16 audio>"}
     - Client sends: {"type": "text", "text": "hello"} (for testing)
     - Client sends: {"type": "end"} to end the session
+    - Client sends: {"type": "commit"} to commit audio buffer
     
     - Server sends: {"type": "audio", "data": "<base64 pcm16 audio>"}
     - Server sends: {"type": "transcript", "role": "user|assistant", "text": "..."}
@@ -64,14 +66,28 @@ class VoiceConsumer(AsyncWebsocketConsumer):
         
         logger.info(f"Voice WebSocket connected: {self.session_id}")
         
-        # Get user from scope
+        # Parse query params first to get token
+        query_string = self.scope.get('query_string', b'').decode()
+        query_params = parse_qs(query_string)
+        
+        # Get user from scope (Session Auth) or Token
         self.user = self.scope.get("user")
         if self.user and not self.user.is_authenticated:
             self.user = None
-        
-        # Parse query params for agent type and shop
-        query_string = self.scope.get('query_string', b'').decode()
-        query_params = parse_qs(query_string)
+            
+        # Try token auth if no session user
+        if not self.user:
+            token = query_params.get('token', [None])[0]
+            if token:
+                try:
+                    logger.info("Attempting WebSocket authentication via token")
+                    # database_sync_to_async is needed for DB access in auth
+                    auth_user = await database_sync_to_async(get_user_from_auth_header)(f"Bearer {token}")
+                    if auth_user and auth_user.is_authenticated:
+                        self.user = auth_user
+                        logger.info(f"WebSocket authenticated via token: {self.user.email}")
+                except Exception as e:
+                    logger.error(f"Token authentication failed: {e}")
         
         requested_agent = query_params.get('agent', ['master'])[0]
         shop_id = query_params.get('shop_id', [None])[0]

@@ -16,9 +16,13 @@ django_asgi_app = get_asgi_application()
 # Import routing after Django is initialized
 from apps.voice.routing import websocket_urlpatterns
 
+from channels.auth import AuthMiddlewareStack
+
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
     "websocket": AllowedHostsOriginValidator(
-        URLRouter(websocket_urlpatterns)
+        AuthMiddlewareStack(
+            URLRouter(websocket_urlpatterns)
+        )
     ),
 })

@@ -32,13 +32,11 @@ def sync_user_role_from_clerk(user, clerk_user_data):
         logger.info(f"Auto-synced role for {user.email}: {old_role} → {clerk_role}")
 
 
-def get_user_from_token(request):
+def get_user_from_auth_header(auth_header):
     """
-    Get or create user from Clerk token.
-    Auto-syncs role from Clerk on each authentication to prevent mismatches.
+    Get or create user from Authorization header.
+    Auto-syncs role from Clerk on each authentication.
     """
-    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-    
     if not auth_header:
         return AnonymousUser()
     
@@ -116,7 +114,7 @@ def get_user_from_token(request):
                 **user_data
             )
             
-            logger.info(f"Recreated user {user.email}: clerk_id {old_clerk_id} → {clerk_user_id}, role: {user.role}")
+            logger.info(f"Recreated user {user.email}: clerk_id {old_clerk_id} -> {clerk_user_id}, role: {user.role}")
             return user
             
         except User.DoesNotExist:
@@ -130,8 +128,17 @@ def get_user_from_token(request):
         return user
     
     except Exception as e:
-        logger.error(f"Error in get_user_from_token: {str(e)}")
+        logger.error(f"Error in get_user_from_auth_header: {str(e)}")
         return AnonymousUser()
+
+
+def get_user_from_token(request):
+    """
+    Get or create user from Clerk token.
+    Wraps get_user_from_auth_header using request headers.
+    """
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+    return get_user_from_auth_header(auth_header)
 
 
 class ClerkAuthenticationMiddleware:
