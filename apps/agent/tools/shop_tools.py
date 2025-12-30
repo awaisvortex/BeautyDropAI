@@ -11,9 +11,10 @@ class SearchShopsTool(BaseTool):
     
     name = "search_shops"
     description = """
-    Search for shops by name, city, or service type.
-    Returns shop IDs that can be used with other shop tools.
-    ALWAYS use this first to get shop IDs before calling get_shop_info, get_shop_services, etc.
+    Search for shops or list all available shops.
+    Query and city are OPTIONAL. If not provided, lists top-rated shops.
+    Use this to 'list all shops', 'show me salons', or to search by name/city.
+    ALWAYS use this first to get shop IDs.
     """
     allowed_roles = ["customer", "client", "staff", "guest"]
     
@@ -325,6 +326,14 @@ class GetShopServicesTool(BaseTool):
                 "category": {
                     "type": "string",
                     "description": "Optional: Filter by category"
+                },
+                "staff_name": {
+                    "type": "string",
+                    "description": "Optional: Filter by staff member name (e.g. 'Ahmad')"
+                },
+                "staff_id": {
+                    "type": "string",
+                    "description": "Optional: Filter by staff UUID"
                 }
             }
         }
@@ -354,11 +363,21 @@ class GetShopServicesTool(BaseTool):
             
             services = Service.objects.filter(shop=shop, is_active=True)
             
+            # Filter by category
             category = kwargs.get('category')
             if category:
                 services = services.filter(category__icontains=category)
             
-            services = services.order_by('category', 'name')
+            # Filter by staff
+            staff_name = kwargs.get('staff_name')
+            staff_id = kwargs.get('staff_id')
+            
+            if staff_id:
+                services = services.filter(staff_members__id=staff_id)
+            elif staff_name:
+                services = services.filter(staff_members__name__icontains=staff_name)
+            
+            services = services.distinct().order_by('category', 'name')
             
             return {
                 "success": True,
