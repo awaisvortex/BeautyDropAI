@@ -80,13 +80,33 @@ class GetAvailableSlotsTool(BaseTool):
         
         # Check for "next <weekday>" or just "<weekday>"
         for day_name, day_num in weekdays.items():
-            if day_name in date_str:
+            if day_name in date_str and len(date_str.split()) <= 2:
                 current_weekday = today.weekday()
                 days_ahead = (day_num - current_weekday) % 7
                 if days_ahead == 0:  # Same day means next week if "next" specified
                     if 'next' in date_str:
                         days_ahead = 7
                 return today + timedelta(days=days_ahead)
+        
+        # Try fuzzy parsing for "Month Day" (e.g. "January 6th", "Jan 6")
+        try:
+            # Remove ordinal suffixes (st, nd, rd, th)
+            import re
+            clean_date = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', date_str)
+            
+            # Simple parsing using strptime with default year
+            for fmt in ['%B %d', '%b %d', '%d %B', '%d %b']:
+                try:
+                    parsed = datetime.strptime(clean_date, fmt)
+                    # Use current year, but if date passed, use next year
+                    parsed = parsed.replace(year=today.year)
+                    if parsed.date() < today:
+                        parsed = parsed.replace(year=today.year + 1)
+                    return parsed.date()
+                except ValueError:
+                    continue
+        except Exception:
+            pass
         
         # Default to today if unparseable
         raise ValueError(f"Cannot parse date: {date_str}")

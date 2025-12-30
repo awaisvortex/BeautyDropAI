@@ -1,18 +1,16 @@
 """
 OpenAI Realtime API client for voice conversations.
 Handles WebSocket connection, audio streaming, and function calling.
+Supports external system prompt and tools injection for multi-agent architecture.
 """
 import asyncio
 import base64
 import json
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import websockets
 from django.conf import settings
-
-from .voice_tools import VOICE_TOOLS, execute_voice_tool
-from ..prompts import get_voice_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +26,23 @@ class OpenAIRealtimeClient:
     
     def __init__(
         self,
-        on_audio_delta: Optional[Callable[[bytes], None]] = None,
+        on_audio_delta: Optional[Callable[[str], None]] = None,
         on_transcript: Optional[Callable[[str, str], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
         on_session_created: Optional[Callable[[str], None]] = None,
+        on_tool_call: Optional[Callable[[str, dict, str], None]] = None,
     ):
         """
         Initialize the Realtime client.
         
         Args:
-            on_audio_delta: Callback for audio data chunks (base64 encoded)
+            on_audio_delta: Callback for audio data chunks (base64 encoded string)
             on_transcript: Callback for transcripts (role, text)
             on_error: Callback for errors
-            on_session_created: Callback when session is created
+            on_session_created: Callback when session is created (session_id)
+            on_tool_call: Callback when a tool call is requested (tool_name, args, call_id)
+                          If provided, tool execution is delegated to the caller.
+                          If None, falls back to internal voice_tools execution.
         """
         self.api_key = settings.OPENAI_API_KEY
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
@@ -51,6 +53,7 @@ class OpenAIRealtimeClient:
         self.on_transcript = on_transcript
         self.on_error = on_error
         self.on_session_created = on_session_created
+        self.on_tool_call = on_tool_call
         
         # State
         self._connected = False
@@ -58,14 +61,33 @@ class OpenAIRealtimeClient:
         
         # Transcript accumulator for streaming responses
         self._current_assistant_transcript = ""
+        
+        # Configuration (set during connect)
+        self._system_prompt = None
+        self._tools = None
+        self._voice = "alloy"
     
-    async def connect(self) -> bool:
+    async def connect(
+        self,
+        system_prompt: str = None,
+        tools: List[Dict] = None,
+        voice: str = "alloy"
+    ) -> bool:
         """
         Connect to OpenAI Realtime API.
+        
+        Args:
+            system_prompt: Custom system prompt (optional, uses default if not provided)
+            tools: List of OpenAI function definitions (optional)
+            voice: Voice to use (alloy, echo, fable, onyx, nova, shimmer)
         
         Returns:
             True if connection successful
         """
+        self._system_prompt = system_prompt
+        self._tools = tools or []
+        self._voice = voice
+        
         try:
             url = f"{OPENAI_REALTIME_URL}?model={OPENAI_REALTIME_MODEL}"
             
@@ -76,7 +98,6 @@ class OpenAIRealtimeClient:
             
             logger.info(f"Connecting to OpenAI Realtime API...")
             
-            # websockets 12.0+ uses extra_headers as a list of tuples
             self.ws = await websockets.connect(
                 url,
                 extra_headers=headers,
@@ -90,7 +111,7 @@ class OpenAIRealtimeClient:
             # Start receiving messages
             self._receive_task = asyncio.create_task(self._receive_loop())
             
-            # Configure session
+            # Configure session with provided or default settings
             await self._configure_session()
             
             return True
@@ -103,12 +124,26 @@ class OpenAIRealtimeClient:
     
     async def _configure_session(self):
         """Configure the session with system prompt and tools."""
+        # Use provided system prompt or fall back to default
+        if self._system_prompt:
+            instructions = self._system_prompt
+        else:
+            from ..prompts import get_voice_system_prompt
+            instructions = get_voice_system_prompt()
+        
+        # Use provided tools or fall back to default
+        if self._tools:
+            tools = self._tools
+        else:
+            from .voice_tools import VOICE_TOOLS
+            tools = VOICE_TOOLS
+        
         config = {
             "type": "session.update",
             "session": {
                 "modalities": ["text", "audio"],
-                "instructions": get_voice_system_prompt(),
-                "voice": "alloy",
+                "instructions": instructions,
+                "voice": self._voice,
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
                 "input_audio_transcription": {
@@ -120,14 +155,14 @@ class OpenAIRealtimeClient:
                     "prefix_padding_ms": 300,
                     "silence_duration_ms": 500
                 },
-                "tools": VOICE_TOOLS,
+                "tools": tools,
                 "tool_choice": "auto",
                 "temperature": 0.7
             }
         }
         
         await self._send(config)
-        logger.info("Session configured with voice agent settings")
+        logger.info(f"Session configured with {len(tools)} tools, voice: {self._voice}")
     
     async def _send(self, data: dict):
         """Send a message to the WebSocket."""
@@ -154,9 +189,18 @@ class OpenAIRealtimeClient:
         })
     
     async def commit_audio(self):
-        """Commit the audio buffer to trigger a response."""
+        """
+        Commit the audio buffer and request a response.
+        Call this when the user stops speaking.
+        """
+        # Commit the audio buffer
         await self._send({
             "type": "input_audio_buffer.commit"
+        })
+        
+        # Request a response
+        await self._send({
+            "type": "response.create"
         })
     
     async def send_text(self, text: str):
@@ -191,17 +235,24 @@ class OpenAIRealtimeClient:
             "type": "response.cancel"
         })
     
-    async def commit_audio(self):
+    async def send_tool_result(self, call_id: str, result: Any):
         """
-        Commit the audio buffer and request a response.
-        Call this when the user stops speaking.
+        Send a tool execution result back to OpenAI.
+        
+        Args:
+            call_id: The call_id from the tool call event
+            result: The result of the tool execution (will be JSON serialized)
         """
-        # Commit the audio buffer
         await self._send({
-            "type": "input_audio_buffer.commit"
+            "type": "conversation.item.create",
+            "item": {
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": json.dumps(result) if not isinstance(result, str) else result
+            }
         })
         
-        # Request a response
+        # Request continuation
         await self._send({
             "type": "response.create"
         })
@@ -263,35 +314,19 @@ class OpenAIRealtimeClient:
             try:
                 args = json.loads(arguments)
                 
-                # Use sync_to_async for Django ORM queries
-                from asgiref.sync import sync_to_async
-                result = await sync_to_async(execute_voice_tool, thread_sensitive=True)(name, args)
-                
-                # Send function result back
-                await self._send({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": json.dumps(result)
-                    }
-                })
-                
-                # Request continuation
-                await self._send({
-                    "type": "response.create"
-                })
-                
+                # If external tool handler is provided, delegate to it
+                if self.on_tool_call:
+                    self.on_tool_call(name, args, call_id)
+                else:
+                    # Fall back to internal voice_tools execution
+                    await self._execute_internal_tool(name, args, call_id)
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse function arguments: {e}")
+                await self.send_tool_result(call_id, {"error": f"Invalid arguments: {e}"})
             except Exception as e:
                 logger.error(f"Function call error: {e}")
-                await self._send({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": json.dumps({"error": str(e)})
-                    }
-                })
+                await self.send_tool_result(call_id, {"error": str(e)})
         
         elif event_type == "error":
             error = event.get("error", {})
@@ -310,6 +345,18 @@ class OpenAIRealtimeClient:
         elif event_type == "rate_limits.updated":
             # Rate limit info - just log it
             logger.debug(f"Rate limits: {event.get('rate_limits', [])}")
+    
+    async def _execute_internal_tool(self, name: str, args: dict, call_id: str):
+        """Execute a tool using the internal voice_tools (fallback)."""
+        from .voice_tools import execute_voice_tool
+        from asgiref.sync import sync_to_async
+        
+        try:
+            result = await sync_to_async(execute_voice_tool, thread_sensitive=True)(name, args)
+            await self.send_tool_result(call_id, result)
+        except Exception as e:
+            logger.error(f"Internal tool execution error: {e}")
+            await self.send_tool_result(call_id, {"error": str(e)})
     
     async def disconnect(self):
         """Disconnect from OpenAI Realtime API."""
