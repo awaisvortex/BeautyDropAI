@@ -1,4 +1,4 @@
-FROM python:3.13.7-slim
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -25,8 +25,8 @@ RUN poetry config virtualenvs.create false \
 # Copy the rest of the application code
 COPY . /app
 
-EXPOSE 8000
+EXPOSE 8080
 
-# Respect Cloud Run's dynamic PORT (defaults to 8000 for local dev)
-CMD ["sh", "-c", "python manage.py runserver 0.0.0.0:${PORT:-8000}"]
-
+# Use daphne ASGI server for WebSocket support
+# Cloud Run sets PORT env variable (defaults to 8080)
+CMD ["sh", "-c", "daphne -b 0.0.0.0 -p ${PORT:-8080} config.asgi:application"]

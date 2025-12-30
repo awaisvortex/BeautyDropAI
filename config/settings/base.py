@@ -266,14 +266,40 @@ CACHES = {
 }
 
 # Channel Layers (for WebSocket support)
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [REDIS_URL],
+# Parse Redis URL to handle SSL properly for Cloud Memorystore
+import ssl
+from urllib.parse import urlparse
+
+_redis_parsed = urlparse(REDIS_URL)
+_redis_host = _redis_parsed.hostname or 'localhost'
+_redis_port = _redis_parsed.port or 6379
+_redis_password = _redis_parsed.password
+_redis_ssl = _redis_parsed.scheme == 'rediss'
+
+if _redis_ssl:
+    # SSL connection for Cloud Memorystore
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [{
+                    'address': f'rediss://{_redis_host}:{_redis_port}',
+                    'password': _redis_password,
+                    'ssl_cert_reqs': None,  # Skip cert verification for Cloud Memorystore
+                }],
+            },
         },
-    },
-}
+    }
+else:
+    # Non-SSL connection (local development)
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_URL],
+            },
+        },
+    }
 
 # Session Configuration
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'

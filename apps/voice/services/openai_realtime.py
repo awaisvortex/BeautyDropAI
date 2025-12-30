@@ -191,6 +191,21 @@ class OpenAIRealtimeClient:
             "type": "response.cancel"
         })
     
+    async def commit_audio(self):
+        """
+        Commit the audio buffer and request a response.
+        Call this when the user stops speaking.
+        """
+        # Commit the audio buffer
+        await self._send({
+            "type": "input_audio_buffer.commit"
+        })
+        
+        # Request a response
+        await self._send({
+            "type": "response.create"
+        })
+    
     async def _receive_loop(self):
         """Main loop for receiving messages from OpenAI."""
         try:
