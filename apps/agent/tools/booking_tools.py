@@ -267,7 +267,10 @@ class CreateBookingTool(BaseTool):
         logger = logging.getLogger(__name__)
         
         try:
-            customer = Customer.objects.get(user=user)
+            # Get or create customer profile
+            customer, created = Customer.objects.get_or_create(user=user)
+            if created:
+                logger.info(f"Created missing Customer profile for {user.email} during booking")
             
             # Get shop by ID or name
             shop_id = kwargs.get('shop_id')
