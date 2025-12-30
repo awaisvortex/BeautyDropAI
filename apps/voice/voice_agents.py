@@ -147,6 +147,11 @@ class MasterVoiceAgent(BaseVoiceAgent):
         """Get tool executor function."""
         from .voice_tool_registry import execute_master_tool
         return lambda name, args: execute_master_tool(name, args, self.user)
+    
+    def get_greeting(self) -> str:
+        """Get greeting for master agent."""
+        return "Hi! I'm BeautyDrop AI. I can help you find salons, learn about services, or connect you to a shop. How can I help you today?"
+
 
 
 class ShopVoiceAgent(BaseVoiceAgent):
