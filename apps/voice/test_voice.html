@@ -552,6 +552,11 @@
                 recordingContext.close();
                 recordingContext = null;
             }
+            
+            // Tell server to commit audio buffer and generate response
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'commit' }));
+            }
         }
         
         function updateVisualizer(audioData) {

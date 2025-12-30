@@ -120,6 +120,11 @@ class VoiceConsumer(AsyncWebsocketConsumer):
                     if self.openai_client:
                         await self.openai_client.cancel_response()
                 
+                elif msg_type == "commit":
+                    # User stopped speaking - commit audio and get response
+                    if self.openai_client:
+                        await self.openai_client.commit_audio()
+                
         except json.JSONDecodeError:
             logger.warning("Invalid JSON received")
         except Exception as e:
