@@ -267,6 +267,9 @@ class CreateBookingTool(BaseTool):
         logger = logging.getLogger(__name__)
         
         try:
+            logger.info(f"CreateBookingTool executing for user: {user.email}")
+            logger.info(f"Arguments received: {kwargs}")
+
             # Get or create customer profile
             customer, created = Customer.objects.get_or_create(user=user)
             if created:
