@@ -10,8 +10,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
 from apps.core.permissions import IsClient, IsShopOwner
+from apps.core.serializers import SuccessResponseSerializer
 from .models import Service
-from .serializers import ServiceSerializer, ServiceCreateUpdateSerializer
+from .serializers import ServiceSerializer, ServiceCreateUpdateSerializer, ServiceDeleteErrorSerializer
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
@@ -162,8 +163,8 @@ class ServiceViewSet(viewsets.ModelViewSet):
         - Complete or cancel active bookings first, then delete
         """,
         responses={
-            204: OpenApiResponse(description="Service deleted successfully"),
-            400: OpenApiResponse(description="Bad Request - Has active bookings"),
+            200: SuccessResponseSerializer,
+            400: ServiceDeleteErrorSerializer,
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Service not found")
         },
@@ -171,6 +172,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     )
     def destroy(self, request, *args, **kwargs):
         service = self.get_object()
+        service_name = service.name
         
         # Check for active bookings (pending or confirmed)
         from apps.bookings.models import Booking
@@ -187,7 +189,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 {
                     'error': 'Cannot delete service with active bookings',
                     'active_bookings_count': active_count,
-                    'message': f'There are {active_count} pending/confirmed booking(s) for this service. Complete or cancel them first.',
+                    'message': f"There are {active_count} pending/confirmed booking(s) for service '{service_name}'. Complete or cancel them first.",
                     'next_booking': {
                         'id': str(upcoming.id),
                         'datetime': upcoming.booking_datetime.isoformat(),
@@ -197,7 +199,11 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        return super().destroy(request, *args, **kwargs)
+        self.perform_destroy(service)
+        return Response(
+            {"success": True, "message": f"Service '{service_name}' deleted successfully"},
+            status=status.HTTP_200_OK
+        )
     
     @extend_schema(
         summary="Toggle service active status",

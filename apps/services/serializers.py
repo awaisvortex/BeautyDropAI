@@ -64,3 +64,11 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         validated_data.pop('shop_id', None)
         return super().update(instance, validated_data)
+
+
+class ServiceDeleteErrorSerializer(serializers.Serializer):
+    """Detailed error when service deletion is blocked by active bookings"""
+    error = serializers.CharField(help_text="Error type code")
+    active_bookings_count = serializers.IntegerField(help_text="Number of active bookings")
+    message = serializers.CharField(help_text="User-friendly error message")
+    next_booking = serializers.DictField(help_text="Details of the next upcoming booking")
