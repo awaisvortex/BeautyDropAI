@@ -931,3 +931,78 @@ This architecture provides a solid foundation for a scalable, modular salon book
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```mermaid
+flowchart TD
+    A[Start: User Submits URL] --> B{Discovery Phase}
+    
+    B -->|Fetch| C[Home Page]
+    B -->|Find Links| D[Sub-pages: /services, /contact, /about]
+    
+    subgraph Parallel Crawling
+    C --> E[Extract Text]
+    D --> E
+    C --> F[Find Menu Images]
+    D --> F
+    end
+    
+    E --> G[Consolidated Context]
+    F --> G
+    
+    G --> H{AI Parser GPT-4o}
+    
+    H -->|Vision Analysis| I[Extract Prices from Images]
+    H -->|Text Analysis| J[Extract Hours & Address]
+    
+    I --> K[Merged Data]
+    J --> K
+    
+    K --> L{Validator}
+    
+    L -->|Fix| M[Format Phone Numbers]
+    L -->|Fix| N[Inject Default Schedule]
+    
+    N --> O[Final JSON Draft]
+    O --> P[User Confirmation]
+    P --> Q[(Database: Shop Created)]
+
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style H fill:#bbf,stroke:#333,stroke-width:2px
+    style Q fill:#9f9,stroke:#333,stroke-width:2px

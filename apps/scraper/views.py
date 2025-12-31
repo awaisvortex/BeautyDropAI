@@ -228,12 +228,12 @@ class ScraperViewSet(viewsets.GenericViewSet):
             schedule_data = []
         
         # Apply overrides
-        if serializer.validated_data.get('shop_data'):
-            shop_data.update(serializer.validated_data['shop_data'])
-        if serializer.validated_data.get('services_data'):
-            services_data = serializer.validated_data['services_data']
-        if serializer.validated_data.get('schedule_data'):
-            schedule_data = serializer.validated_data['schedule_data']
+        if serializer.validated_data.get('shop'):
+            shop_data.update(serializer.validated_data['shop'])
+        if serializer.validated_data.get('services'):
+            services_data = serializer.validated_data['services']
+        if serializer.validated_data.get('schedule'):
+            schedule_data = serializer.validated_data['schedule']
         
         # Validate required shop data
         if not shop_data.get('name'):

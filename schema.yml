@@ -6657,16 +6657,16 @@ components:
           default: true
           description: If true, use extracted data as base. If false, only use provided
             data.
-        shop_data:
+        shop:
           allOf:
           - $ref: '#/components/schemas/ExtractedShopDataRequest'
           description: Override extracted shop data
-        services_data:
+        services:
           type: array
           items:
             $ref: '#/components/schemas/ExtractedServiceDataRequest'
           description: Override extracted services
-        schedule_data:
+        schedule:
           type: array
           items:
             $ref: '#/components/schemas/ExtractedScheduleDataRequest'

@@ -315,7 +315,7 @@ def validate_and_clean(data: dict) -> dict:
         
         cleaned['schedule'].append(schedule_entry)
     
-    logger.info(f"Cleaned data: shop={bool(cleaned['shop'])}, services={len(cleaned['services'])}, schedule={len(cleaned['schedule'])}}")
+    logger.info(f"Cleaned data: shop={bool(cleaned['shop'])}, services={len(cleaned['services'])}, schedule={len(cleaned['schedule'])}")
     
     return cleaned
 

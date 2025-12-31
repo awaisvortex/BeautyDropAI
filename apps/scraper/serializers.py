@@ -170,16 +170,16 @@ class ScrapeConfirmSerializer(serializers.Serializer):
         default=True,
         help_text="If true, use extracted data as base. If false, only use provided data."
     )
-    shop_data = ExtractedShopDataSerializer(
+    shop = ExtractedShopDataSerializer(
         required=False,
         help_text="Override extracted shop data"
     )
-    services_data = ExtractedServiceDataSerializer(
+    services = ExtractedServiceDataSerializer(
         many=True,
         required=False,
         help_text="Override extracted services"
     )
-    schedule_data = ExtractedScheduleDataSerializer(
+    schedule = ExtractedScheduleDataSerializer(
         many=True,
         required=False,
         help_text="Override extracted schedule"
