@@ -110,3 +110,150 @@ def cleanup_old_scrape_jobs():
     
     logger.info(f"Cleaned up {deleted_count} old scrape jobs")
     return {'deleted_count': deleted_count}
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=30)
+def create_shop_from_scrape_task(
+    self, 
+    scrape_job_id: str, 
+    shop_data: dict, 
+    services_data: list, 
+    schedule_data: list
+):
+    """
+    Async task to create shop, services, and schedules from confirmed scrape job.
+    
+    This runs in the background so the user doesn't have to wait for
+    potentially hundreds of services to be created.
+    
+    Args:
+        scrape_job_id: UUID of the ScrapeJob
+        shop_data: Shop details dict
+        services_data: List of service dicts
+        schedule_data: List of schedule dicts
+    """
+    from apps.shops.models import Shop
+    from apps.services.models import Service
+    from apps.schedules.models import ShopSchedule
+    
+    try:
+        scrape_job = ScrapeJob.objects.get(id=scrape_job_id)
+    except ScrapeJob.DoesNotExist:
+        logger.error(f"ScrapeJob {scrape_job_id} not found for shop creation")
+        return {'status': 'error', 'message': 'Job not found'}
+    
+    logger.info(f"Creating shop from scrape job {scrape_job_id} with {len(services_data)} services")
+    
+    try:
+        with transaction.atomic():
+            # Clean phone number
+            phone = shop_data.get('phone', '')
+            if phone:
+                cleaned_phone = ''.join(c for c in phone if c.isdigit() or c == '+')
+                if not cleaned_phone.startswith('+'):
+                    cleaned_phone = '+92' + cleaned_phone  # Default to Pakistan
+                phone = cleaned_phone[:15]
+            else:
+                phone = '+920000000000'
+            
+            # Ensure required fields have defaults
+            address = shop_data.get('address', '') or 'Address TBD'
+            city = shop_data.get('city', '') or 'City TBD'
+            postal_code = shop_data.get('postal_code', '') or '00000'
+            
+            # Create shop
+            shop = Shop.objects.create(
+                client=scrape_job.client,
+                name=shop_data.get('name', ''),
+                description=shop_data.get('description', ''),
+                address=address,
+                city=city,
+                state=shop_data.get('state', ''),
+                postal_code=postal_code,
+                country=shop_data.get('country', 'Pakistan'),
+                phone=phone,
+                email=shop_data.get('email', ''),
+                website=shop_data.get('website', scrape_job.url),
+                timezone=shop_data.get('timezone', 'Asia/Karachi'),
+                is_active=True,
+            )
+            
+            logger.info(f"Created shop {shop.id}: {shop.name}")
+            
+            # Create services
+            services_created = 0
+            for svc in services_data:
+                if svc.get('name') and svc.get('price') is not None:
+                    Service.objects.create(
+                        shop=shop,
+                        name=svc['name'],
+                        description=svc.get('description', ''),
+                        price=svc['price'],
+                        duration_minutes=svc.get('duration_minutes', 30),
+                        category=svc.get('category', ''),
+                        is_active=True,
+                    )
+                    services_created += 1
+            
+            logger.info(f"Created {services_created} services for shop {shop.id}")
+            
+            # Create schedules
+            schedules_created = 0
+            for sched in schedule_data:
+                day = sched.get('day_of_week')
+                if not day:
+                    continue
+                
+                is_closed = sched.get('is_closed', False)
+                start_time = sched.get('start_time')
+                end_time = sched.get('end_time')
+                
+                if is_closed or not start_time or not end_time:
+                    continue
+                
+                ShopSchedule.objects.create(
+                    shop=shop,
+                    day_of_week=day,
+                    start_time=start_time,
+                    end_time=end_time,
+                    is_active=True,
+                )
+                schedules_created += 1
+            
+            logger.info(f"Created {schedules_created} schedules for shop {shop.id}")
+            
+            # Update scrape job
+            scrape_job.status = ScrapeJobStatus.CONFIRMED
+            scrape_job.shop = shop
+            scrape_job.save(update_fields=['status', 'shop', 'updated_at'])
+            
+            logger.info(f"Shop creation complete for scrape job {scrape_job_id}")
+            
+            return {
+                'status': 'success',
+                'shop_id': str(shop.id),
+                'shop_name': shop.name,
+                'services_created': services_created,
+                'schedules_created': schedules_created,
+            }
+            
+    except Exception as e:
+        logger.error(f"Failed to create shop from scrape job {scrape_job_id}: {e}")
+        
+        # Update job with error
+        scrape_job.status = ScrapeJobStatus.FAILED
+        scrape_job.error_message = f"Shop creation failed: {str(e)[:500]}"
+        scrape_job.save(update_fields=['status', 'error_message', 'updated_at'])
+        
+        # Retry for transient errors
+        if self.request.retries < self.max_retries:
+            # Reset status for retry
+            scrape_job.status = ScrapeJobStatus.CREATING
+            scrape_job.save(update_fields=['status', 'updated_at'])
+            raise self.retry(exc=e)
+        
+        return {
+            'status': 'failed',
+            'job_id': str(scrape_job_id),
+            'error': str(e),
+        }

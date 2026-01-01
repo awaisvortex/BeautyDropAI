@@ -13,15 +13,11 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db import transaction
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from apps.core.serializers import SuccessResponseSerializer
 
 from apps.core.permissions import IsClient
 from apps.clients.models import Client
-from apps.shops.models import Shop
-from apps.services.models import Service
-from apps.schedules.models import ShopSchedule
 
 from .models import ScrapeJob, ScrapeJobStatus
 from .serializers import (
@@ -242,101 +238,29 @@ class ScraperViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Clean and prepare phone number (remove non-digits except +)
-        phone = shop_data.get('phone', '')
-        if phone:
-            # Keep only digits and leading +
-            cleaned_phone = ''.join(c for c in phone if c.isdigit() or c == '+')
-            if not cleaned_phone.startswith('+'):
-                cleaned_phone = '+1' + cleaned_phone  # Default to US
-            phone = cleaned_phone[:15]  # Max 15 chars
-        else:
-            phone = '+10000000000'  # Default placeholder
+        # Update status to CREATING
+        scrape_job.status = ScrapeJobStatus.CREATING
+        scrape_job.save(update_fields=['status', 'updated_at'])
         
-        # Ensure required fields have defaults
-        address = shop_data.get('address', '') or 'Address TBD'
-        city = shop_data.get('city', '') or 'City TBD'
-        postal_code = shop_data.get('postal_code', '') or '00000'
+        # Queue async task for shop creation
+        from .tasks import create_shop_from_scrape_task
         
-        try:
-            with transaction.atomic():
-                # Create shop
-                shop = Shop.objects.create(
-                    client=scrape_job.client,
-                    name=shop_data.get('name', ''),
-                    description=shop_data.get('description', ''),
-                    address=address,
-                    city=city,
-                    state=shop_data.get('state', ''),
-                    postal_code=postal_code,
-                    country=shop_data.get('country', 'USA'),
-                    phone=phone,
-                    email=shop_data.get('email', ''),
-                    website=shop_data.get('website', scrape_job.url),
-                    timezone=shop_data.get('timezone', 'UTC'),
-                    is_active=True,
-                )
-                
-                # Create services
-                services_created = 0
-                for svc in services_data:
-                    if svc.get('name') and svc.get('price') is not None:
-                        Service.objects.create(
-                            shop=shop,
-                            name=svc['name'],
-                            description=svc.get('description', ''),
-                            price=svc['price'],
-                            duration_minutes=svc.get('duration_minutes', 30),
-                            category=svc.get('category', ''),
-                            is_active=True,
-                        )
-                        services_created += 1
-                
-                # Create schedules
-                schedules_created = 0
-                for sched in schedule_data:
-                    day = sched.get('day_of_week')
-                    if not day:
-                        continue
-                    
-                    is_closed = sched.get('is_closed', False)
-                    start_time = sched.get('start_time')
-                    end_time = sched.get('end_time')
-                    
-                    # Skip closed days or missing times
-                    if is_closed or not start_time or not end_time:
-                        continue
-                    
-                    ShopSchedule.objects.create(
-                        shop=shop,
-                        day_of_week=day,
-                        start_time=start_time,
-                        end_time=end_time,
-                        is_active=True,
-                    )
-                    schedules_created += 1
-                
-                # Update scrape job
-                scrape_job.status = ScrapeJobStatus.CONFIRMED
-                scrape_job.shop = shop
-                scrape_job.save(update_fields=['status', 'shop', 'updated_at'])
-                
-                logger.info(f"Created shop {shop.id} from scrape job {scrape_job.id}")
-                
-                return Response({
-                    'success': True,
-                    'shop_id': str(shop.id),
-                    'shop_name': shop.name,
-                    'services_created': services_created,
-                    'schedules_created': schedules_created,
-                })
-                
-        except Exception as e:
-            logger.error(f"Failed to create shop from scrape job {scrape_job.id}: {e}")
-            return Response(
-                {'error': f'Failed to create shop: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        create_shop_from_scrape_task.delay(
+            scrape_job_id=str(scrape_job.id),
+            shop_data=shop_data,
+            services_data=services_data,
+            schedule_data=schedule_data,
+        )
+        
+        logger.info(f"Queued shop creation task for scrape job {scrape_job.id}")
+        
+        return Response({
+            'success': True,
+            'message': 'Shop creation started. This may take a few minutes for shops with many services.',
+            'job_id': str(scrape_job.id),
+            'status': 'creating',
+            'services_count': len(services_data),
+        }, status=status.HTTP_202_ACCEPTED)
     
     @extend_schema(
         summary="Cancel/delete scrape job",

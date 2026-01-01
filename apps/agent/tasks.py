@@ -117,3 +117,75 @@ def sync_single_service_task(service_id: str):
     except Exception as e:
         logger.error(f"Failed to sync service {service_id}: {e}")
         return {"success": False, "error": str(e)}
+
+
+@shared_task(name='agent.remove_shop')
+def remove_shop_from_pinecone_task(shop_id: str):
+    """
+    Celery task to remove a shop from Pinecone.
+    
+    Args:
+        shop_id: UUID of the shop to remove.
+    """
+    try:
+        from apps.agent.signals import remove_shop_from_pinecone
+        remove_shop_from_pinecone(shop_id)
+        logger.info(f"Successfully removed shop {shop_id} from Pinecone")
+        return {"success": True, "shop_id": shop_id}
+    except Exception as e:
+        logger.error(f"Failed to remove shop {shop_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@shared_task(name='agent.remove_service')
+def remove_service_from_pinecone_task(service_id: str):
+    """
+    Celery task to remove a service from Pinecone.
+    
+    Args:
+        service_id: UUID of the service to remove.
+    """
+    try:
+        from apps.agent.signals import remove_service_from_pinecone
+        remove_service_from_pinecone(service_id)
+        logger.info(f"Successfully removed service {service_id} from Pinecone")
+        return {"success": True, "service_id": service_id}
+    except Exception as e:
+        logger.error(f"Failed to remove service {service_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@shared_task(name='agent.remove_shop_services')
+def remove_shop_services_from_pinecone_task(service_ids: list):
+    """
+    Celery task to remove multiple services from Pinecone in batch (used when deleting a shop).
+    
+    Args:
+        service_ids: List of service UUIDs to remove.
+    """
+    if not service_ids:
+        return {"success": True, "count": 0}
+    
+    try:
+        from apps.agent.services.pinecone_service import PineconeService
+        from apps.agent.models import KnowledgeDocument
+        
+        pinecone_service = PineconeService()
+        
+        # Batch delete from Pinecone - single API call for all services
+        success = pinecone_service.delete(service_ids, namespace=PineconeService.NAMESPACE_SERVICES)
+        
+        if success:
+            logger.info(f"Batch deleted {len(service_ids)} services from Pinecone")
+        
+        # Batch delete knowledge documents
+        deleted_count, _ = KnowledgeDocument.objects.filter(
+            doc_type='service',
+            pinecone_id__in=service_ids
+        ).delete()
+        
+        logger.info(f"Successfully removed {len(service_ids)} services from Pinecone (docs deleted: {deleted_count})")
+        return {"success": True, "count": len(service_ids)}
+    except Exception as e:
+        logger.error(f"Failed to remove services: {e}")
+        return {"success": False, "error": str(e)}

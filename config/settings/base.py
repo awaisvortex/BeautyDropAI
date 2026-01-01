@@ -250,6 +250,9 @@ FIREBASE_CREDENTIALS_PATH = env('FIREBASE_CREDENTIALS_PATH', default='')
 OPENAI_API_KEY = env('OPENAI_API_KEY', default='')
 OPENAI_MODEL = env('OPENAI_MODEL', default='gpt-4-turbo-preview')
 
+# Firecrawl Configuration (for AI Scraper)
+FIRECRAWL_API_KEY = env('FIRECRAWL_API_KEY', default=None)
+
 # Pinecone Configuration (for AI Agent knowledge base)
 PINECONE_API_KEY = env('PINECONE_API_KEY', default='')
 PINECONE_INDEX_NAME = env('PINECONE_INDEX_NAME', default='beautydrop-knowledge')

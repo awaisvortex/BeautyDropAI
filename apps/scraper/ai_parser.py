@@ -73,23 +73,40 @@ EXTRACTION_SCHEMA = {
 
 
 SYSTEM_PROMPT = """You are an expert at extracting structured business information from website content.
+You will be provided with website content in **Markdown** format (parsed from HTML).
+You may also receive **SCREENSHOT IMAGES** of service/menu pages - extract ALL service information visible in these images.
+
 Your task is to extract salon/beauty shop information including:
 
 1. **Shop Details**: Name, description, full address (broken into components), phone, email, website
 2. **Services**: List of services with names, descriptions, prices (as numbers), and duration in minutes
-3. **Schedule**: Operating hours for each day of the week
+3. **Schedule**: Operating hours for each day of the week - THIS IS CRITICAL
 
 IMPORTANT Guidelines:
-- **Shop Name**: The business name is typically in the page title or header. Look for "Salon Name", "Business Name & Co.", etc.
-- **Schedule**: Look for operating hours like "11am - 11pm" or "Monday - Sunday" patterns. If times like "11am-11pm Monday-Sunday" are found, apply the same hours to ALL 7 days.
+- **Shop Name**: The business name is typically in the page title or header 1 (# Header). Look for "Salon Name", "Business Name & Co.", etc.
+
+- **Services from IMAGES (CRITICAL)**:
+  - If screenshot images are provided, carefully examine them for service menus, price lists, or treatment cards
+  - Extract EVERY service visible in the images - don't miss any!
+  - Look for service names, prices, and descriptions in image text
+  - Many salons display services in cards, tables, or visual layouts - extract all of them
+  - Combine services from images AND text content for the complete list
+
+- **Schedule/Opening Hours**: 
+  - CRITICAL: Look carefully in the FOOTER section for "Opening hours", "Business hours", "Hours of operation", etc.
+  - Common patterns: "Mon - Sun: 10 AM - 9 PM", "Monday-Sunday 11am-11pm", "Open 7 days 10:00-21:00"
+  - If you find "10 AM - 9 PM", convert to 24-hour format: start_time="10:00", end_time="21:00"
+  - If hours apply to all days (e.g., "Mon - Sun"), create entries for ALL 7 days with those SPECIFIC hours
+  - NEVER leave start_time or end_time empty if hours are mentioned anywhere on the page
+  - Check footer, contact page, and sidebar for hours information
+  
 - Extract as much information as you can find
 - For prices, extract the numeric value only (e.g., 1500 not "Rs. 1,500" or "$45")
 - For duration, assume 30 minutes if not specified, or convert to minutes (e.g., "1 hour" = 60)
-- For schedule times, use 24-hour HH:MM format (e.g., "11:00", "23:00")
-- If the schedule says "Monday - Sunday" with specific hours, create entries for ALL 7 days with those hours
+- For schedule times, ALWAYS use 24-hour HH:MM format (e.g., "10:00", "21:00")
 - If a day is closed, set is_closed to true and omit times
 - Country defaults to "Pakistan" if addresses contain Pakistani city names (Lahore, Karachi, etc.), otherwise "USA"
-- Be thorough - extract ALL services you can find, even if they don't have complete info
+- Be thorough - extract ALL services you can find from BOTH images and text, even if they don't have complete info
 
 Return ONLY valid JSON matching the specified schema."""
 
@@ -145,7 +162,7 @@ def parse_with_ai(scraped_data: dict) -> dict:
     
     # Add main text content (truncated if needed)
     text_content = scraped_data.get('text_content', '')
-    max_text_length = 15000  # Keep reasonable for token limits
+    max_text_length = 50000  # Increased to handle full page with footer (for schedule)
     if len(text_content) > max_text_length:
         text_content = text_content[:max_text_length] + "\n... [content truncated]"
     content_parts.append(f"\nPage Content:\n{text_content}")
@@ -168,7 +185,8 @@ def parse_with_ai(scraped_data: dict) -> dict:
                 "text": "I'm providing service/price menu images from a salon website. Extract ALL services with their prices from these images. Also extract shop info and schedule from the text content below."
             })
             
-            for img_url in service_images[:4]:  # Limit to 4 images to control costs
+            # Send up to 10 images to capture all service menu sections
+            for img_url in service_images[:10]:
                 user_content.append({
                     "type": "image_url",
                     "image_url": {"url": img_url, "detail": "high"}
@@ -184,16 +202,37 @@ def parse_with_ai(scraped_data: dict) -> dict:
                 "text": f"Extract shop information from this website content:\n\n{full_content}"
             })
         
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.1,  # Low temperature for consistent extraction
-            max_tokens=8000,  # Increased for more services
-        )
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.1,  # Low temperature for consistent extraction
+                max_tokens=16000,  # Increased for 100+ services
+            )
+        except Exception as img_error:
+            # If image processing failed, retry without images
+            if service_images and "image" in str(img_error).lower():
+                logger.warning(f"Image processing failed, retrying without images: {img_error}")
+                user_content = [{
+                    "type": "text",
+                    "text": f"Extract shop information from this website content:\n\n{full_content}"
+                }]
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_content}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.1,
+                    max_tokens=16000,
+                )
+            else:
+                raise
         
         result_text = response.choices[0].message.content
         logger.info(f"AI response received ({len(result_text)} chars)")
@@ -258,11 +297,76 @@ def validate_and_clean(data: dict) -> dict:
             'email': str(shop_data.get('email', '')).strip(),
             'website': str(shop_data.get('website', '')).strip(),
         }
+        
+        # Infer timezone from country and city
+        country = cleaned['shop'].get('country', '').lower()
+        city = cleaned['shop'].get('city', '').lower()
+        
+        # Country-based timezone mapping
+        country_timezone_map = {
+            'pakistan': 'Asia/Karachi',
+            'india': 'Asia/Kolkata',
+            'uae': 'Asia/Dubai',
+            'united arab emirates': 'Asia/Dubai',
+            'saudi arabia': 'Asia/Riyadh',
+            'uk': 'Europe/London',
+            'united kingdom': 'Europe/London',
+            'canada': 'America/Toronto',
+            'australia': 'Australia/Sydney',
+        }
+        
+        # US city-based timezone mapping
+        us_city_timezone_map = {
+            'new york': 'America/New_York',
+            'los angeles': 'America/Los_Angeles',
+            'chicago': 'America/Chicago',
+            'houston': 'America/Chicago',
+            'phoenix': 'America/Phoenix',
+            'philadelphia': 'America/New_York',
+            'san antonio': 'America/Chicago',
+            'san diego': 'America/Los_Angeles',
+            'dallas': 'America/Chicago',
+            'san francisco': 'America/Los_Angeles',
+            'austin': 'America/Chicago',
+            'seattle': 'America/Los_Angeles',
+            'denver': 'America/Denver',
+            'boston': 'America/New_York',
+            'miami': 'America/New_York',
+            'atlanta': 'America/New_York',
+        }
+        
+        timezone = 'UTC'  # Default fallback
+        
+        if country in country_timezone_map:
+            timezone = country_timezone_map[country]
+        elif country in ['usa', 'united states', 'us', 'america']:
+            # Check city for US
+            for us_city, tz in us_city_timezone_map.items():
+                if us_city in city:
+                    timezone = tz
+                    break
+            else:
+                timezone = 'America/New_York'  # Default for US
+        
+        cleaned['shop']['timezone'] = timezone
+        
         # Remove empty values
         cleaned['shop'] = {k: v for k, v in cleaned['shop'].items() if v}
     
-    # Clean services
-    for service in data.get('services', []):
+    # Clean services - handle both dict and malformed data
+    services_data = data.get('services', [])
+    if not isinstance(services_data, list):
+        services_data = []
+        
+    for service in services_data:
+        # Convert string services to dict format (AI sometimes just returns service names)
+        if isinstance(service, str):
+            service = {'name': service, 'price': 0, 'duration_minutes': 30}
+        
+        # Skip non-dict entries after conversion attempt
+        if not isinstance(service, dict):
+            continue
+            
         if not service.get('name'):
             continue
             
@@ -314,6 +418,18 @@ def validate_and_clean(data: dict) -> dict:
             schedule_entry['end_time'] = end_time
         
         cleaned['schedule'].append(schedule_entry)
+    
+    # FALLBACK: If no schedule was extracted, generate a default 7-day schedule
+    # This ensures shops always have operating hours
+    if not cleaned['schedule']:
+        logger.warning("No schedule extracted from content, generating default 7-day schedule")
+        for day in valid_days:
+            cleaned['schedule'].append({
+                'day_of_week': day,
+                'start_time': default_start,
+                'end_time': default_end,
+                'is_closed': False,
+            })
     
     logger.info(f"Cleaned data: shop={bool(cleaned['shop'])}, services={len(cleaned['services'])}, schedule={len(cleaned['schedule'])}")
     

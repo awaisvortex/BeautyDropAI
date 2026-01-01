@@ -11,6 +11,7 @@ class ScrapeJobStatus(models.TextChoices):
     SCRAPING = 'scraping', 'Scraping'
     PARSING = 'parsing', 'Parsing with AI'
     COMPLETED = 'completed', 'Completed'
+    CREATING = 'creating', 'Creating Shop'
     CONFIRMED = 'confirmed', 'Shop Created'
     FAILED = 'failed', 'Failed'
 

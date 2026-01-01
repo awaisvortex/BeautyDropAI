@@ -12,6 +12,11 @@ import logging
 import asyncio
 from typing import Optional, Tuple, List, Set
 from urllib.parse import urlparse, urljoin
+from django.conf import settings
+try:
+    from firecrawl import FirecrawlApp
+except ImportError:
+    FirecrawlApp = None
 
 import httpx
 from bs4 import BeautifulSoup
@@ -435,6 +440,17 @@ async def scrape_website(url: str) -> Tuple[str, dict]:
     platform = detect_platform(url)
     logger.info(f"Detected platform: {platform}")
     
+    # Check for Firecrawl
+    firecrawl_key = getattr(settings, 'FIRECRAWL_API_KEY', None)
+    
+    if firecrawl_key:
+        try:
+            structured_data = await scrape_with_firecrawl(url, firecrawl_key)
+            return 'firecrawl', structured_data
+        except Exception as e:
+            logger.error(f"Firecrawl failed, falling back to standard scraper: {e}")
+            # Fallback will continue below
+    
     # For generic websites, do multi-page scraping
     if platform == 'generic':
         structured_data = await scrape_multiple_pages(url, max_pages=5)
@@ -448,6 +464,193 @@ async def scrape_website(url: str) -> Tuple[str, dict]:
     structured_data['platform'] = platform
     
     return platform, structured_data
+
+
+async def scrape_with_firecrawl(url: str, api_key: str) -> dict:
+    """
+    Scrape website using Firecrawl API.
+    Uses 'map' to find pages and then 'scrape' to get markdown.
+    """
+    logger.info(f"Using Firecrawl for URL: {url}")
+    
+    app = FirecrawlApp(api_key=api_key)
+    
+    # 1. Map the website to find relevant pages
+    try:
+        # We need to run sync methods in thread pool since Firecrawl SDK is sync
+        loop = asyncio.get_running_loop()
+        
+        # Map to find links
+        logger.info("Firecrawl: Mapping site...")
+        map_result = await loop.run_in_executor(None, lambda: app.map(url))
+        
+        # Handle different map result formats (dict, list, or Pydantic model)
+        all_links = []
+        if hasattr(map_result, 'links'):
+            all_links = map_result.links or []
+        elif isinstance(map_result, dict):
+            all_links = map_result.get('links', [])
+        elif isinstance(map_result, list):
+            all_links = map_result
+            
+        logger.info(f"Firecrawl: Found {len(all_links)} links")
+        
+        # Filter for important pages
+        parsed_base = urlparse(url)
+        base_domain = parsed_base.netloc
+        
+        important_links = []
+        seen = set()
+        
+        # Always include the main URL
+        clean_main = url.rstrip('/')
+        important_links.append(url)
+        seen.add(clean_main)
+        
+        # Find other relevant pages
+        for link_item in all_links:
+            if not link_item: continue
+            
+            # Extract URL string from LinkResult object or use as-is if string
+            link = getattr(link_item, 'url', link_item) if hasattr(link_item, 'url') else str(link_item)
+            
+            # Normalize
+            clean_link = link.rstrip('/')
+            if clean_link in seen:
+                continue
+                
+            # Check domain
+            parsed_link = urlparse(link)
+            if parsed_link.netloc and base_domain not in parsed_link.netloc:
+                continue
+                
+            # Check keywords
+            link_lower = link.lower()
+            is_important = any(k in link_lower for k in IMPORTANT_PAGE_KEYWORDS)
+            
+            if is_important:
+                important_links.append(link)
+                seen.add(clean_link)
+                
+            if len(important_links) >= 15:  # Increased limit to capture all service categories
+                break
+        
+        logger.info(f"Firecrawl: Scraping {len(important_links)} pages: {important_links}")
+        
+        # 2. Scrape the selected pages
+        combined_markdown = ""
+        combined_data = {
+            'title': '',
+            'meta_description': '',
+            'schema_data': [],
+            'contact_info': {},  # Firecrawl doesn't extract this structured info, AI will do it from MD
+            'source_url': url,
+            'pages_scraped': important_links,
+            'service_menu_images': []  # Will store base64 screenshots of service pages
+        }
+        
+        # Keywords that indicate a page likely has service/menu listings
+        service_page_keywords = ['service', 'menu', 'pricing', 'price', 'treatment', 'package', 'book']
+        
+        for link in important_links:
+            try:
+                # Check if this is likely a services/menu page
+                link_lower = link.lower()
+                is_service_page = any(kw in link_lower for kw in service_page_keywords)
+                
+                # Set formats - include screenshot AND images for service pages
+                # Firecrawl SDK requires dict format for screenshot options
+                formats = ['markdown']
+                if is_service_page:
+                    # Use dict format with fullPage=True to capture entire scrollable page
+                    formats.append({'type': 'screenshot', 'fullPage': True})
+                    # Also extract image URLs from the page (service menus are often images)
+                    formats.append('images')
+                    logger.info(f"Capturing FULL PAGE screenshot + images for service page: {link}")
+                
+                # Scrape individual page - capture link in default arg to avoid closure bug
+                # Set onlyMainContent=False to include footer (where opening hours often are)
+                result = await loop.run_in_executor(
+                    None, 
+                    lambda l=link, f=formats: app.scrape(
+                        l, 
+                        formats=f,
+                        only_main_content=False  # Include headers/footers for schedule info
+                    )
+                )
+                
+                if not result:
+                    continue
+                
+                # Firecrawl SDK v2 returns a Pydantic Document object, not a dict
+                # Access attributes directly instead of using .get()
+                md = getattr(result, 'markdown', '') or ''
+                meta = getattr(result, 'metadata', None)
+                
+                # Capture screenshot if available from Firecrawl
+                # Note: Firecrawl can return either a URL or base64 depending on version/config
+                screenshot = getattr(result, 'screenshot', None)
+                if screenshot:
+                    try:
+                        if isinstance(screenshot, str) and len(screenshot) > 100:
+                            # Check if it's a URL (Firecrawl often returns hosted URLs)
+                            if screenshot.startswith('http://') or screenshot.startswith('https://'):
+                                # It's a URL - use directly for GPT-4 Vision
+                                combined_data['service_menu_images'].append(screenshot)
+                                logger.info(f"Captured screenshot URL for {link}")
+                            elif screenshot.startswith('data:'):
+                                # Already has data URL prefix
+                                combined_data['service_menu_images'].append(screenshot)
+                                logger.info(f"Captured screenshot (data URL) for {link}")
+                            elif len(screenshot) > 1000:
+                                # Looks like base64 (long string) - add PNG prefix
+                                screenshot_url = f"data:image/png;base64,{screenshot}"
+                                combined_data['service_menu_images'].append(screenshot_url)
+                                logger.info(f"Captured screenshot (base64, {len(screenshot)} chars) for {link}")
+                            else:
+                                # Too short to be valid base64 or a URL we trust
+                                logger.warning(f"Screenshot for {link} has unexpected format ({len(screenshot)} chars)")
+                    except Exception as e:
+                        logger.warning(f"Failed to process screenshot for {link}: {e}")
+                
+                # Also capture image URLs from the page (service menus are often images)
+                page_images = getattr(result, 'images', None) or []
+                if page_images and is_service_page:
+                    # Filter to likely service menu images (exclude small icons, logos)
+                    for img_url in page_images:
+                        if isinstance(img_url, str) and img_url.startswith('http'):
+                            # Skip small/common icons
+                            skip_keywords = ['logo', 'icon', 'favicon', 'avatar', 'sprite', 'button']
+                            if not any(kw in img_url.lower() for kw in skip_keywords):
+                                combined_data['service_menu_images'].append(img_url)
+                    if combined_data['service_menu_images']:
+                        logger.info(f"Found {len(page_images)} images on {link}, added {len(combined_data['service_menu_images'])} to AI parsing")
+                
+                # Capture title/desc from first page (homepage)
+                if link == url and meta:
+                    combined_data['title'] = getattr(meta, 'title', '') or ''
+                    combined_data['meta_description'] = getattr(meta, 'description', '') or ''
+                
+                page_name = link.split('/')[-1] or 'home'
+                combined_markdown += f"\n\n=== PAGE: {page_name.upper()} ({link}) ===\n\n"
+                combined_markdown += md
+                
+            except Exception as e:
+                logger.warning(f"Firecrawl failed to scrape {link}: {e}")
+        
+        # If we got no content, fall back to standard scraper
+        if not combined_markdown.strip():
+            logger.warning("Firecrawl returned no content, falling back to standard scraper")
+            raise ScraperError("Firecrawl returned empty content")
+        
+        combined_data['text_content'] = combined_markdown
+        return combined_data
+        
+    except Exception as e:
+        logger.error(f"Firecrawl error: {e}")
+        # Fallback to standard scraping if Firecrawl fails? 
+        # For now, just re-raise or return empty to let caller decide
+        raise ScraperError(f"Firecrawl failed: {str(e)}")
 
 
 # Synchronous wrapper for Celery
