@@ -314,6 +314,128 @@ def service_deleted_handler(sender, instance, **kwargs):
     remove_service_from_pinecone_task.delay(service_id)
 
 
+# ============ DEAL SYNC FUNCTIONS ============
+
+def sync_deal_to_pinecone(deal):
+    """Sync a deal to Pinecone knowledge base."""
+    try:
+        from apps.agent.services.embedding_service import EmbeddingService
+        from apps.agent.services.pinecone_service import PineconeService
+        from apps.agent.models import KnowledgeDocument
+        from django.utils import timezone
+        
+        embedding_service = EmbeddingService()
+        pinecone_service = PineconeService()
+        
+        # Build content for embedding
+        included_items_text = ", ".join(deal.included_items) if deal.included_items else "Various services"
+        
+        content = f"""
+{deal.shop.name} offers a special deal: {deal.name}
+
+Bundle Price: {deal.price}
+
+This deal includes:
+{included_items_text}
+
+{deal.description or ''}
+
+Location: {deal.shop.city}, {deal.shop.state or deal.shop.country}
+""".strip()
+        
+        # Generate embedding
+        embedding = embedding_service.get_embedding(content)
+        
+        # Upsert to Pinecone using the dedicated method
+        success = pinecone_service.upsert_deal(deal, embedding)
+        
+        if success:
+            KnowledgeDocument.objects.update_or_create(
+                doc_type='deal',
+                pinecone_id=str(deal.id),
+                defaults={
+                    'pinecone_namespace': PineconeService.NAMESPACE_SERVICES,
+                    'content_text': content,
+                    'metadata_json': {
+                        'deal_name': deal.name,
+                        'price': float(deal.price),
+                        'included_items': deal.included_items,
+                    },
+                    'last_synced_at': timezone.now(),
+                    'needs_resync': False,
+                    'sync_error': ''
+                }
+            )
+            logger.info(f"Synced deal {deal.name} to Pinecone")
+        else:
+            logger.error(f"Failed to sync deal {deal.name} to Pinecone")
+            
+    except Exception as e:
+        logger.error(f"Error syncing deal {deal.id} to Pinecone: {e}")
+
+
+def remove_deal_from_pinecone(deal_id: str):
+    """Remove a deal from Pinecone knowledge base."""
+    try:
+        from apps.agent.services.pinecone_service import PineconeService
+        from apps.agent.models import KnowledgeDocument
+        
+        pinecone_service = PineconeService()
+        
+        # Delete from Pinecone
+        success = pinecone_service.delete([deal_id], namespace=PineconeService.NAMESPACE_SERVICES)
+        
+        if success:
+            logger.info(f"Removed deal {deal_id} from Pinecone")
+        
+        # Delete knowledge document
+        KnowledgeDocument.objects.filter(
+            doc_type='deal',
+            pinecone_id=deal_id
+        ).delete()
+        
+    except Exception as e:
+        logger.error(f"Error removing deal {deal_id} from Pinecone: {e}")
+
+
+# ============ DEAL SIGNALS ============
+
+@receiver(post_save, sender='services.Deal')
+def deal_saved_handler(sender, instance, created, **kwargs):
+    """Handle deal save - queue async sync to Pinecone if active, remove if inactive."""
+    from apps.agent.tasks import sync_single_deal_task, remove_deal_from_pinecone_task
+    
+    # Capture values for the closure
+    deal_id = str(instance.id)
+    deal_name = instance.name
+    is_active = instance.is_active and instance.shop.is_active
+    
+    if is_active:
+        # Deal and shop are active - queue async sync AFTER transaction commits
+        def queue_sync():
+            logger.info(f"Deal {deal_name} transaction committed, queuing Pinecone sync")
+            sync_single_deal_task.delay(deal_id)
+        transaction.on_commit(queue_sync)
+    else:
+        # Deal or shop was deactivated - queue async removal from Pinecone
+        def queue_removal():
+            logger.info(f"Deal {deal_name} or its shop deactivated, queuing Pinecone removal")
+            remove_deal_from_pinecone_task.delay(deal_id)
+        transaction.on_commit(queue_removal)
+
+
+@receiver(pre_delete, sender='services.Deal')
+def deal_deleted_handler(sender, instance, **kwargs):
+    """Handle deal deletion - queue async removal from Pinecone."""
+    from apps.agent.tasks import remove_deal_from_pinecone_task
+    
+    deal_id = str(instance.id)
+    deal_name = instance.name
+    
+    logger.info(f"Deal {deal_name} being deleted, queuing Pinecone removal")
+    remove_deal_from_pinecone_task.delay(deal_id)
+
+
 # ============ STAFF SIGNALS ============
 
 @receiver(post_save, sender='staff.StaffMember')

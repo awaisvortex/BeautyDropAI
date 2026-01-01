@@ -66,6 +66,24 @@ EXTRACTION_SCHEMA = {
                 },
                 "required": ["day_of_week"]
             }
+        },
+        "deals": {
+            "type": "array",
+            "description": "Special deals/packages that bundle multiple services at a discounted price",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Deal name (e.g., 'Deal 1', 'Winter Special', 'Bridal Package')"},
+                    "price": {"type": "number", "description": "Bundle price as number"},
+                    "included_items": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of services/items included in this deal"
+                    },
+                    "description": {"type": "string", "description": "Optional description of the deal"}
+                },
+                "required": ["name", "price", "included_items"]
+            }
         }
     },
     "required": ["shop"]
@@ -79,18 +97,33 @@ You may also receive **SCREENSHOT IMAGES** of service/menu pages - extract ALL s
 Your task is to extract salon/beauty shop information including:
 
 1. **Shop Details**: Name, description, full address (broken into components), phone, email, website
-2. **Services**: List of services with names, descriptions, prices (as numbers), and duration in minutes
+2. **Services**: List of ALL services with names, descriptions, prices (as numbers), and duration in minutes
 3. **Schedule**: Operating hours for each day of the week - THIS IS CRITICAL
+4. **Deals/Packages**: Special bundled offers with multiple services at a discounted price
 
 IMPORTANT Guidelines:
 - **Shop Name**: The business name is typically in the page title or header 1 (# Header). Look for "Salon Name", "Business Name & Co.", etc.
 
-- **Services from IMAGES (CRITICAL)**:
-  - If screenshot images are provided, carefully examine them for service menus, price lists, or treatment cards
-  - Extract EVERY service visible in the images - don't miss any!
-  - Look for service names, prices, and descriptions in image text
-  - Many salons display services in cards, tables, or visual layouts - extract all of them
-  - Combine services from images AND text content for the complete list
+- **Services Extraction (CRITICAL - Extract ALL Services)**:
+  - **From Category Pages**: When you see a heading like "Manicure Services" followed by bullet points:
+    - The HEADING becomes the CATEGORY (e.g., "Manicure")
+    - Each BULLET POINT becomes a separate SERVICE (e.g., "Nail Cutting", "Nail Filing And Shaping")
+    - Example: "Manicure Services" section with bullets → multiple services with category="Manicure"
+  - **Standalone Services**: If a heading like "Acrylic Nails" or "Body Waxing" has NO sub-bullets, it IS ITSELF a service
+  - **From Images**: Carefully examine screenshots for service menus, price lists, treatment cards
+  - Extract EVERY service visible in images - service names, prices, descriptions
+  - Combine services from images AND text for the complete list
+  - **If no price is visible, use 0 as the price - don't skip the service!**
+
+- **Deals/Packages (IMPORTANT)**:
+  - Look for "Deal 1", "Deal 2", "Package", "Special Offer", "Combo", "Bridal Package", "Winter Special", etc.
+  - **DEALS ARE OFTEN DISPLAYED AS IMAGES/CARDS** showing bundled services with a special price
+  - In homepage image galleries, look for deal cards with text like:
+    - "Deal 1: Hair Cut + Blowdry + Manicure = Rs. 2500"
+    - "Winter Freshness Package" with listed services
+  - Extract the deal NAME (e.g., "Deal 1", "Winter Freshness")
+  - Extract the bundle PRICE (the total price for the deal)
+  - Extract ALL included_items - the list of services/treatments in the deal
 
 - **Schedule/Opening Hours**: 
   - CRITICAL: Look carefully in the FOOTER section for "Opening hours", "Business hours", "Hours of operation", etc.
@@ -106,7 +139,7 @@ IMPORTANT Guidelines:
 - For schedule times, ALWAYS use 24-hour HH:MM format (e.g., "10:00", "21:00")
 - If a day is closed, set is_closed to true and omit times
 - Country defaults to "Pakistan" if addresses contain Pakistani city names (Lahore, Karachi, etc.), otherwise "USA"
-- Be thorough - extract ALL services you can find from BOTH images and text, even if they don't have complete info
+- Be thorough - extract ALL services AND deals you can find from BOTH images and text
 
 Return ONLY valid JSON matching the specified schema."""
 
@@ -240,6 +273,9 @@ def parse_with_ai(scraped_data: dict) -> dict:
         # Parse JSON response
         extracted_data = json.loads(result_text)
         
+        # Debug: log the structure of the response
+        logger.info(f"AI response type: {type(extracted_data)}, keys: {list(extracted_data.keys()) if isinstance(extracted_data, dict) else 'not a dict'}")
+        
         # Validate and clean the data
         extracted_data = validate_and_clean(extracted_data)
         
@@ -267,16 +303,29 @@ def validate_and_clean(data: dict) -> dict:
     cleaned = {
         'shop': {},
         'services': [],
+        'deals': [],
         'schedule': []
     }
     
+    # Defensive: ensure data is a dict
+    if not isinstance(data, dict):
+        logger.warning(f"AI returned non-dict data type: {type(data)}")
+        return cleaned
+    
     # Handle alternative shop key names
     shop_data = data.get('shop') or data.get('shop_details') or {}
+    
+    # Defensive: ensure shop_data is a dict
+    if not isinstance(shop_data, dict):
+        logger.warning(f"Shop data is not a dict: {type(shop_data)}")
+        shop_data = {}
+        
     if shop_data:
         # Handle addresses array (use first address)
         address_parts = {}
-        if 'addresses' in shop_data and shop_data['addresses']:
-            first_addr = shop_data['addresses'][0]
+        addresses = shop_data.get('addresses', [])
+        if isinstance(addresses, list) and addresses:
+            first_addr = addresses[0] if isinstance(addresses[0], dict) else {}
             address_parts = {
                 'address': first_addr.get('street_address', first_addr.get('address', '')),
                 'city': first_addr.get('city', ''),
@@ -385,6 +434,61 @@ def validate_and_clean(data: dict) -> dict:
             'category': str(service.get('category', '')).strip()[:100],
         })
     
+    # Clean deals
+    deals_data = data.get('deals', [])
+    if not isinstance(deals_data, list):
+        deals_data = []
+    
+    logger.info(f"Processing {len(deals_data)} raw deals from AI response")
+        
+    for deal in deals_data:
+        # Skip non-dict entries
+        if not isinstance(deal, dict):
+            logger.debug(f"Skipping non-dict deal: {type(deal)}")
+            continue
+        
+        # Log the deal structure for debugging
+        logger.debug(f"Deal keys: {deal.keys()}, deal: {deal}")
+            
+        # Deal must have a name
+        if not deal.get('name'):
+            logger.debug(f"Skipping deal without name: {deal}")
+            continue
+        
+        # Get included items - handle alternative key names
+        # AI might use 'items', 'services', 'included_services' instead of 'included_items'
+        included_items = (
+            deal.get('included_items') or 
+            deal.get('items') or 
+            deal.get('services') or 
+            deal.get('included_services') or
+            []
+        )
+        
+        if not isinstance(included_items, list):
+            included_items = [str(included_items)]  # Convert to list if string
+        
+        # Filter empty items and convert to strings
+        included_items = [str(item).strip() for item in included_items if item]
+        
+        # If no included items, skip this deal
+        if not included_items:
+            logger.debug(f"Skipping deal '{deal.get('name')}' - no included items found")
+            continue
+            
+        try:
+            price = float(deal.get('price', 0))
+        except (ValueError, TypeError):
+            price = 0
+            
+        cleaned['deals'].append({
+            'name': str(deal.get('name', '')).strip()[:255],
+            'description': str(deal.get('description', '')).strip(),
+            'price': max(0, price),
+            'included_items': included_items,
+        })
+        logger.info(f"Added deal: {deal.get('name')} with {len(included_items)} items")
+    
     # Clean schedule - handle alternative key names
     valid_days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
     
@@ -431,7 +535,7 @@ def validate_and_clean(data: dict) -> dict:
                 'is_closed': False,
             })
     
-    logger.info(f"Cleaned data: shop={bool(cleaned['shop'])}, services={len(cleaned['services'])}, schedule={len(cleaned['schedule'])}")
+    logger.info(f"Cleaned data: shop={bool(cleaned['shop'])}, services={len(cleaned['services'])}, deals={len(cleaned['deals'])}, schedule={len(cleaned['schedule'])}")
     
     return cleaned
 

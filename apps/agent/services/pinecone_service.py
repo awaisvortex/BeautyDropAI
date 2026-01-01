@@ -125,6 +125,47 @@ class PineconeService:
             logger.error(f"Error upserting service to Pinecone: {e}")
             return False
     
+    def upsert_deal(self, deal, embedding: List[float]) -> bool:
+        """
+        Upsert a deal to Pinecone.
+        
+        Args:
+            deal: Deal model instance
+            embedding: Pre-computed embedding vector
+            
+        Returns:
+            True if successful
+        """
+        try:
+            metadata = {
+                "type": "deal",
+                "deal_id": str(deal.id),
+                "shop_id": str(deal.shop.id),
+                "shop_name": deal.shop.name,
+                "deal_name": deal.name,
+                "description": (deal.description or "")[:500],
+                "price": float(deal.price),
+                "included_items": deal.included_items or [],
+                "city": deal.shop.city or "",
+                "is_active": deal.is_active,
+            }
+            
+            self.index.upsert(
+                vectors=[{
+                    "id": str(deal.id),
+                    "values": embedding,
+                    "metadata": metadata
+                }],
+                namespace=self.NAMESPACE_SERVICES  # Deals in same namespace as services
+            )
+            
+            logger.info(f"Upserted deal {deal.name} to Pinecone")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error upserting deal to Pinecone: {e}")
+            return False
+    
     def query(
         self,
         embedding: List[float],

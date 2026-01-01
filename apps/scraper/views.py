@@ -138,9 +138,14 @@ class ScraperViewSet(viewsets.GenericViewSet):
     
     @extend_schema(
         summary="Get scrape job details",
-        description="Get details of a specific scrape job including extracted data.",
+        description="""Get details of a specific scrape job including extracted data.
+        
+Returns HTTP 202 (Accepted) while job is still processing (pending/scraping/parsing/creating).
+Returns HTTP 200 (OK) when job is completed or failed.
+Frontend should poll this endpoint and show loading until HTTP 200 is returned.""",
         responses={
             200: ScrapeJobSerializer,
+            202: OpenApiResponse(description="Job still processing - poll again"),
             404: OpenApiResponse(description="Scrape job not found"),
         },
         tags=['Scraper']
@@ -156,6 +161,19 @@ class ScraperViewSet(viewsets.GenericViewSet):
             )
         
         serializer = ScrapeJobSerializer(scrape_job)
+        
+        # Return 202 while still processing, 200 when complete/failed
+        processing_statuses = [
+            ScrapeJobStatus.PENDING,
+            ScrapeJobStatus.SCRAPING,
+            ScrapeJobStatus.PARSING,
+            ScrapeJobStatus.CREATING,
+        ]
+        
+        if scrape_job.status in processing_statuses:
+            return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+        
+        # Only return 200 for COMPLETED, CONFIRMED, or FAILED
         return Response(serializer.data)
     
     @extend_schema(
@@ -183,13 +201,20 @@ class ScraperViewSet(viewsets.GenericViewSet):
         
         # Check status
         if scrape_job.status == ScrapeJobStatus.CONFIRMED:
-            return Response(
-                {
-                    'error': 'Shop already created from this scrape job',
-                    'shop_id': str(scrape_job.shop.id) if scrape_job.shop else None,
-                },
-                status=status.HTTP_409_CONFLICT
-            )
+            # If shop still exists, block re-confirmation
+            if scrape_job.shop:
+                return Response(
+                    {
+                        'error': 'Shop already created from this scrape job',
+                        'shop_id': str(scrape_job.shop.id),
+                    },
+                    status=status.HTTP_409_CONFLICT
+                )
+            else:
+                # Shop was deleted - allow re-confirmation by resetting status
+                logger.info(f"Scrape job {pk} was confirmed but shop was deleted, allowing re-confirm")
+                scrape_job.status = ScrapeJobStatus.COMPLETED
+                scrape_job.save(update_fields=['status', 'updated_at'])
         
         if scrape_job.status != ScrapeJobStatus.COMPLETED:
             return Response(
@@ -217,11 +242,13 @@ class ScraperViewSet(viewsets.GenericViewSet):
         shop_data = extracted.get('shop', {})
         services_data = extracted.get('services', [])
         schedule_data = extracted.get('schedule', [])
+        deals_data = extracted.get('deals', [])
         
         if not use_extracted:
             shop_data = {}
             services_data = []
             schedule_data = []
+            deals_data = []
         
         # Apply overrides
         if serializer.validated_data.get('shop'):
@@ -250,6 +277,7 @@ class ScraperViewSet(viewsets.GenericViewSet):
             shop_data=shop_data,
             services_data=services_data,
             schedule_data=schedule_data,
+            deals_data=deals_data,
         )
         
         logger.info(f"Queued shop creation task for scrape job {scrape_job.id}")
@@ -260,6 +288,7 @@ class ScraperViewSet(viewsets.GenericViewSet):
             'job_id': str(scrape_job.id),
             'status': 'creating',
             'services_count': len(services_data),
+            'deals_count': len(deals_data),
         }, status=status.HTTP_202_ACCEPTED)
     
     @extend_schema(

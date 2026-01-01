@@ -189,3 +189,51 @@ def remove_shop_services_from_pinecone_task(service_ids: list):
     except Exception as e:
         logger.error(f"Failed to remove services: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ============ DEAL SYNC TASKS ============
+
+@shared_task(name='agent.sync_single_deal')
+def sync_single_deal_task(deal_id: str):
+    """
+    Celery task to sync a single deal to Pinecone.
+    
+    Args:
+        deal_id: UUID of the deal to sync.
+    """
+    try:
+        from apps.services.models import Deal
+        from apps.agent.signals import sync_deal_to_pinecone
+        
+        deal = Deal.objects.get(id=deal_id, is_active=True, shop__is_active=True)
+        sync_deal_to_pinecone(deal)
+        
+        logger.info(f"Successfully synced deal {deal.name}")
+        return {"success": True, "deal": deal.name}
+        
+    except Deal.DoesNotExist:
+        logger.warning(f"Deal {deal_id} not found or inactive")
+        return {"success": False, "error": "Deal not found or inactive"}
+    except Exception as e:
+        logger.error(f"Failed to sync deal {deal_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@shared_task(name='agent.remove_deal')
+def remove_deal_from_pinecone_task(deal_id: str):
+    """
+    Celery task to remove a deal from Pinecone.
+    
+    Args:
+        deal_id: UUID of the deal to remove.
+    """
+    try:
+        from apps.agent.signals import remove_deal_from_pinecone
+        
+        remove_deal_from_pinecone(deal_id)
+        logger.info(f"Successfully removed deal {deal_id} from Pinecone")
+        return {"success": True, "deal_id": deal_id}
+    except Exception as e:
+        logger.error(f"Failed to remove deal {deal_id}: {e}")
+        return {"success": False, "error": str(e)}
+

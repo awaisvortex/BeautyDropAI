@@ -72,3 +72,59 @@ class ServiceDeleteErrorSerializer(serializers.Serializer):
     active_bookings_count = serializers.IntegerField(help_text="Number of active bookings")
     message = serializers.CharField(help_text="User-friendly error message")
     next_booking = serializers.DictField(help_text="Details of the next upcoming booking")
+
+
+# ============ DEAL SERIALIZERS ============
+
+class DealSerializer(serializers.ModelSerializer):
+    """Response serializer for Deal model"""
+    shop_name = serializers.CharField(source='shop.name', read_only=True)
+    items_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        from .models import Deal
+        model = Deal
+        fields = [
+            'id', 'shop', 'shop_name', 'name', 'description',
+            'price', 'included_items', 'items_count', 'is_active',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'shop', 'created_at', 'updated_at']
+    
+    def get_items_count(self, obj):
+        """Return the number of items included in this deal"""
+        return len(obj.included_items) if obj.included_items else 0
+
+
+class DealCreateUpdateSerializer(serializers.ModelSerializer):
+    """Input serializer for creating/updating deals"""
+    shop_id = serializers.UUIDField(write_only=True, required=False)
+    included_items = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        help_text='List of services/items included in this deal',
+        allow_empty=False
+    )
+    
+    class Meta:
+        from .models import Deal
+        model = Deal
+        fields = ['shop_id', 'name', 'description', 'price', 'included_items', 'is_active']
+    
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Price cannot be negative")
+        return value
+    
+    def validate_included_items(self, value):
+        if not value or len(value) == 0:
+            raise serializers.ValidationError("At least one item must be included in the deal")
+        return value
+
+    def create(self, validated_data):
+        validated_data.pop('shop_id', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop('shop_id', None)
+        return super().update(instance, validated_data)
+

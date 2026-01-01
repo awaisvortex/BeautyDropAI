@@ -118,10 +118,11 @@ def create_shop_from_scrape_task(
     scrape_job_id: str, 
     shop_data: dict, 
     services_data: list, 
-    schedule_data: list
+    schedule_data: list,
+    deals_data: list = None  # Optional list of deal dicts
 ):
     """
-    Async task to create shop, services, and schedules from confirmed scrape job.
+    Async task to create shop, services, deals, and schedules from confirmed scrape job.
     
     This runs in the background so the user doesn't have to wait for
     potentially hundreds of services to be created.
@@ -131,10 +132,15 @@ def create_shop_from_scrape_task(
         shop_data: Shop details dict
         services_data: List of service dicts
         schedule_data: List of schedule dicts
+        deals_data: Optional list of deal dicts
     """
     from apps.shops.models import Shop
-    from apps.services.models import Service
+    from apps.services.models import Service, Deal
     from apps.schedules.models import ShopSchedule
+    
+    # Default to empty list if not provided
+    if deals_data is None:
+        deals_data = []
     
     try:
         scrape_job = ScrapeJob.objects.get(id=scrape_job_id)
@@ -197,6 +203,23 @@ def create_shop_from_scrape_task(
             
             logger.info(f"Created {services_created} services for shop {shop.id}")
             
+            # Create deals
+            deals_created = 0
+            for deal in deals_data:
+                if deal.get('name') and deal.get('included_items'):
+                    Deal.objects.create(
+                        shop=shop,
+                        name=deal['name'],
+                        description=deal.get('description', ''),
+                        price=deal.get('price', 0),
+                        included_items=deal.get('included_items', []),
+                        is_active=True,
+                    )
+                    deals_created += 1
+            
+            if deals_created > 0:
+                logger.info(f"Created {deals_created} deals for shop {shop.id}")
+            
             # Create schedules
             schedules_created = 0
             for sched in schedule_data:
@@ -234,6 +257,7 @@ def create_shop_from_scrape_task(
                 'shop_id': str(shop.id),
                 'shop_name': shop.name,
                 'services_created': services_created,
+                'deals_created': deals_created,
                 'schedules_created': schedules_created,
             }
             

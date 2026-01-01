@@ -66,10 +66,23 @@ class ExtractedScheduleDataSerializer(serializers.Serializer):
     is_closed = serializers.BooleanField(required=False, default=False, help_text="True if closed on this day")
 
 
+class ExtractedDealDataSerializer(serializers.Serializer):
+    """Serializer for extracted deal data"""
+    name = serializers.CharField(max_length=255, required=True, help_text="Deal/package name")
+    description = serializers.CharField(required=False, allow_blank=True, help_text="Deal description")
+    price = serializers.DecimalField(max_digits=10, decimal_places=2, required=True, help_text="Bundle price")
+    included_items = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=True,
+        help_text="List of services/items included in the deal"
+    )
+
+
 class ExtractedDataSerializer(serializers.Serializer):
     """Nested serializer for all extracted data"""
     shop = ExtractedShopDataSerializer(required=False)
     services = ExtractedServiceDataSerializer(many=True, required=False)
+    deals = ExtractedDealDataSerializer(many=True, required=False)
     schedule = ExtractedScheduleDataSerializer(many=True, required=False)
 
 

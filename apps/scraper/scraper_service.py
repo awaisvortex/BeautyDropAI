@@ -532,7 +532,7 @@ async def scrape_with_firecrawl(url: str, api_key: str) -> dict:
                 important_links.append(link)
                 seen.add(clean_link)
                 
-            if len(important_links) >= 15:  # Increased limit to capture all service categories
+            if len(important_links) >= 10:  # Limit to 10 pages (Firecrawl free tier allows 10 req/min)
                 break
         
         logger.info(f"Firecrawl: Scraping {len(important_links)} pages: {important_links}")
@@ -550,23 +550,30 @@ async def scrape_with_firecrawl(url: str, api_key: str) -> dict:
         }
         
         # Keywords that indicate a page likely has service/menu listings
-        service_page_keywords = ['service', 'menu', 'pricing', 'price', 'treatment', 'package', 'book']
+        # Also include 'deal' and 'offer' for extracting special packages
+        service_page_keywords = ['service', 'menu', 'pricing', 'price', 'treatment', 'package', 'book', 'deal', 'offer']
         
         for link in important_links:
             try:
-                # Check if this is likely a services/menu page
+                # Check if this is likely a services/menu page OR the homepage
                 link_lower = link.lower()
                 is_service_page = any(kw in link_lower for kw in service_page_keywords)
                 
-                # Set formats - include screenshot AND images for service pages
+                # ALWAYS capture homepage screenshot - deals are often on the homepage
+                is_homepage = link.rstrip('/') == url.rstrip('/') or link.rstrip('/').endswith('.com') or link.rstrip('/').endswith('.pk')
+                
+                # Set formats - include screenshot AND images for service pages and homepage
                 # Firecrawl SDK requires dict format for screenshot options
                 formats = ['markdown']
-                if is_service_page:
+                if is_service_page or is_homepage:
                     # Use dict format with fullPage=True to capture entire scrollable page
                     formats.append({'type': 'screenshot', 'fullPage': True})
                     # Also extract image URLs from the page (service menus are often images)
                     formats.append('images')
-                    logger.info(f"Capturing FULL PAGE screenshot + images for service page: {link}")
+                    if is_homepage:
+                        logger.info(f"Capturing FULL PAGE screenshot + images for HOMEPAGE: {link}")
+                    else:
+                        logger.info(f"Capturing FULL PAGE screenshot + images for service page: {link}")
                 
                 # Scrape individual page - capture link in default arg to avoid closure bug
                 # Set onlyMainContent=False to include footer (where opening hours often are)
@@ -613,18 +620,19 @@ async def scrape_with_firecrawl(url: str, api_key: str) -> dict:
                     except Exception as e:
                         logger.warning(f"Failed to process screenshot for {link}: {e}")
                 
-                # Also capture image URLs from the page (service menus are often images)
+                # Also capture image URLs from the page (service menus and deals are often images)
                 page_images = getattr(result, 'images', None) or []
-                if page_images and is_service_page:
-                    # Filter to likely service menu images (exclude small icons, logos)
+                if page_images and (is_service_page or is_homepage):
+                    # Filter to likely service menu / deal images (exclude small icons, logos)
+                    images_before = len(combined_data['service_menu_images'])
                     for img_url in page_images:
                         if isinstance(img_url, str) and img_url.startswith('http'):
                             # Skip small/common icons
                             skip_keywords = ['logo', 'icon', 'favicon', 'avatar', 'sprite', 'button']
                             if not any(kw in img_url.lower() for kw in skip_keywords):
                                 combined_data['service_menu_images'].append(img_url)
-                    if combined_data['service_menu_images']:
-                        logger.info(f"Found {len(page_images)} images on {link}, added {len(combined_data['service_menu_images'])} to AI parsing")
+                    images_added = len(combined_data['service_menu_images']) - images_before
+                    logger.info(f"Found {len(page_images)} images on {link}, added {images_added} to AI parsing")
                 
                 # Capture title/desc from first page (homepage)
                 if link == url and meta:
