@@ -5,6 +5,8 @@ from . import views
 app_name = 'services'
 
 router = DefaultRouter()
-router.register(r'', views.ServiceViewSet, basename='service')
+router.register(r'services', views.ServiceViewSet, basename='service')
+router.register(r'deals', views.DealViewSet, basename='deal')
 
 urlpatterns = router.urls
+

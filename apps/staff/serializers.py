@@ -279,3 +279,16 @@ class ResendVerificationLinkSerializer(serializers.Serializer):
         required=True,
         help_text="Email address of the staff member (must match record)"
     )
+
+
+class StaffDeleteErrorSerializer(serializers.Serializer):
+    """Detailed error when staff member deletion is blocked by active bookings"""
+    error = serializers.CharField(help_text="Error type code")
+    active_bookings_count = serializers.IntegerField(help_text="Number of active bookings")
+    message = serializers.CharField(help_text="User-friendly error message")
+    action_required = serializers.CharField(help_text="Instructions for next steps")
+    bookings_to_reassign = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="List of upcoming bookings that need reassignment"
+    )
+    showing_first = serializers.IntegerField(help_text="Number of bookings shown in the list")

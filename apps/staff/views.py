@@ -17,8 +17,10 @@ from .serializers import (
     StaffMemberCreateUpdateSerializer,
     StaffMemberDetailSerializer,
     StaffServiceAssignmentSerializer,
-    ResendVerificationLinkSerializer
+    ResendVerificationLinkSerializer,
+    StaffDeleteErrorSerializer
 )
+from apps.core.serializers import SuccessResponseSerializer
 
 
 class StaffMemberViewSet(viewsets.ModelViewSet):
@@ -245,8 +247,8 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
         - Then the staff member can be deleted
         """,
         responses={
-            204: OpenApiResponse(description="Staff member deleted successfully"),
-            400: OpenApiResponse(description="Bad Request - Has active bookings that need reassignment"),
+            200: SuccessResponseSerializer,
+            400: StaffDeleteErrorSerializer,
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Staff member not found")
         },
@@ -254,6 +256,7 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
     )
     def destroy(self, request, *args, **kwargs):
         staff_member = self.get_object()
+        staff_name = staff_member.name
         
         # Check for active bookings assigned to this staff
         from apps.bookings.models import Booking
@@ -278,7 +281,7 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
                 {
                     'error': 'Cannot delete staff member with active bookings',
                     'active_bookings_count': active_count,
-                    'message': f'{staff_member.name} has {active_count} pending/confirmed booking(s). Reassign them to other staff first using /bookings/{{id}}/reassign_staff/',
+                    'message': f"{staff_name} has {active_count} pending/confirmed booking(s). Reassign them to other staff first using /api/v1/bookings/{{id}}/reassign_staff/",
                     'action_required': 'Use POST /api/v1/bookings/{booking_id}/reassign_staff/ to reassign each booking',
                     'bookings_to_reassign': booking_details,
                     'showing_first': min(5, active_count)
@@ -286,7 +289,11 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        return super().destroy(request, *args, **kwargs)
+        self.perform_destroy(staff_member)
+        return Response(
+            {"success": True, "message": f"Staff member '{staff_name}' deleted successfully"},
+            status=status.HTTP_200_OK
+        )
     
     @extend_schema(
         summary="Toggle staff availability",

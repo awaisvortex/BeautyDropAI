@@ -59,3 +59,44 @@ class Service(BaseModel):
     
     def __str__(self):
         return f"{self.name} - {self.shop.name}"
+
+
+class Deal(BaseModel):
+    """
+    A deal/package containing multiple services at a special bundle price.
+    Deals are extracted from salon websites and can be managed by shop owners.
+    """
+    shop = models.ForeignKey(
+        'shops.Shop',
+        on_delete=models.CASCADE,
+        related_name='deals'
+    )
+    
+    name = models.CharField(max_length=255)  # e.g., "Deal 1", "Winter Freshness"
+    description = models.TextField(blank=True)
+    
+    # Bundle pricing
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[validate_positive_decimal]
+    )
+    
+    # Service items included in this deal (stored as text - may not match exact services)
+    # Example: ["Hair cut", "Blowdry", "Manicure OR Pedicure", "Skin glow"]
+    included_items = models.JSONField(default=list)
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    
+    class Meta:
+        db_table = 'deals'
+        verbose_name = 'Deal'
+        verbose_name_plural = 'Deals'
+        ordering = ['price', 'name']
+        indexes = [
+            models.Index(fields=['shop', 'is_active']),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} ({self.price}) - {self.shop.name}"

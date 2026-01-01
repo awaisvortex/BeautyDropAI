@@ -11,6 +11,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Q, Count
 
 from apps.core.permissions import IsClient, IsShopOwner
+from apps.core.serializers import SuccessResponseSerializer
 from .models import Shop
 from .serializers import (
     ShopSerializer,
@@ -193,14 +194,20 @@ class ShopViewSet(viewsets.ModelViewSet):
         summary="Delete shop",
         description="Delete a shop (salon owners only)",
         responses={
-            204: OpenApiResponse(description="Shop deleted successfully"),
+            200: SuccessResponseSerializer,
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Shop not found")
         },
         tags=['Shops - Client']
     )
     def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
+        instance = self.get_object()
+        shop_name = instance.name
+        self.perform_destroy(instance)
+        return Response(
+            {"success": True, "message": f"Shop '{shop_name}' deleted successfully"},
+            status=status.HTTP_200_OK
+        )
     
     @extend_schema(
         summary="My shops",

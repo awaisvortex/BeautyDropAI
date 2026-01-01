@@ -10,8 +10,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
 from apps.core.permissions import IsClient, IsShopOwner
-from .models import Service
-from .serializers import ServiceSerializer, ServiceCreateUpdateSerializer
+from apps.core.serializers import SuccessResponseSerializer
+from .models import Service, Deal
+from .serializers import (
+    ServiceSerializer, ServiceCreateUpdateSerializer, ServiceDeleteErrorSerializer,
+    DealSerializer, DealCreateUpdateSerializer
+)
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
@@ -162,8 +166,8 @@ class ServiceViewSet(viewsets.ModelViewSet):
         - Complete or cancel active bookings first, then delete
         """,
         responses={
-            204: OpenApiResponse(description="Service deleted successfully"),
-            400: OpenApiResponse(description="Bad Request - Has active bookings"),
+            200: SuccessResponseSerializer,
+            400: ServiceDeleteErrorSerializer,
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Service not found")
         },
@@ -171,6 +175,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     )
     def destroy(self, request, *args, **kwargs):
         service = self.get_object()
+        service_name = service.name
         
         # Check for active bookings (pending or confirmed)
         from apps.bookings.models import Booking
@@ -187,7 +192,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 {
                     'error': 'Cannot delete service with active bookings',
                     'active_bookings_count': active_count,
-                    'message': f'There are {active_count} pending/confirmed booking(s) for this service. Complete or cancel them first.',
+                    'message': f"There are {active_count} pending/confirmed booking(s) for service '{service_name}'. Complete or cancel them first.",
                     'next_booking': {
                         'id': str(upcoming.id),
                         'datetime': upcoming.booking_datetime.isoformat(),
@@ -197,7 +202,11 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        return super().destroy(request, *args, **kwargs)
+        self.perform_destroy(service)
+        return Response(
+            {"success": True, "message": f"Service '{service_name}' deleted successfully"},
+            status=status.HTTP_200_OK
+        )
     
     @extend_schema(
         summary="Toggle service active status",
@@ -225,3 +234,191 @@ class ServiceViewSet(viewsets.ModelViewSet):
         elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active']:
             return [IsClient(), IsShopOwner()]
         return super().get_permissions()
+
+
+# ============ DEAL VIEWSET ============
+
+class DealViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing deals/packages"""
+    queryset = Deal.objects.select_related('shop', 'shop__client__user')
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['shop', 'is_active']
+    search_fields = ['name', 'description']
+    ordering_fields = ['name', 'price', 'created_at']
+    ordering = ['price']
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return DealCreateUpdateSerializer
+        return DealSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by shop if provided
+        shop_id = self.request.query_params.get('shop_id')
+        if shop_id:
+            queryset = queryset.filter(shop_id=shop_id)
+        
+        # Handle unauthenticated users (public access)
+        if not self.request.user.is_authenticated:
+            queryset = queryset.filter(is_active=True)
+        # Only show active deals to customers
+        elif self.request.user.role == 'customer':
+            queryset = queryset.filter(is_active=True)
+        # Clients see only their deals
+        elif self.request.user.role == 'client':
+            queryset = queryset.filter(shop__client__user=self.request.user)
+        
+        return queryset
+    
+    @extend_schema(
+        summary="List deals",
+        description="Get all deals/packages. Customers see only active deals. Salon owners see only their deals.",
+        parameters=[
+            OpenApiParameter('shop_id', OpenApiTypes.UUID, description='Filter by shop ID'),
+            OpenApiParameter('is_active', bool, description='Filter by active status'),
+            OpenApiParameter('search', str, description='Search in name and description'),
+        ],
+        responses={200: DealSerializer(many=True)},
+        tags=['Deals - Public']
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="Get deal details",
+        description="Retrieve detailed information about a specific deal/package",
+        responses={
+            200: DealSerializer,
+            404: OpenApiResponse(description="Deal not found")
+        },
+        tags=['Deals - Public']
+    )
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="Create deal",
+        description="Create a new deal/package (salon owners only). Requires shop_id in request data.",
+        request=DealCreateUpdateSerializer,
+        responses={
+            201: DealSerializer,
+            400: OpenApiResponse(description="Bad Request"),
+            403: OpenApiResponse(description="Forbidden - Only salon owners can create deals"),
+            404: OpenApiResponse(description="Shop not found")
+        },
+        tags=['Deals - Client']
+    )
+    def create(self, request, *args, **kwargs):
+        # Ensure user is a client
+        if request.user.role != 'client':
+            return Response(
+                {'error': 'Only salon owners can create deals'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Get shop from request data
+        shop_id = request.data.get('shop_id')
+        if not shop_id:
+            return Response(
+                {'error': 'shop_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify shop ownership
+        from apps.shops.models import Shop
+        try:
+            shop = Shop.objects.get(id=shop_id, client__user=request.user)
+        except Shop.DoesNotExist:
+            return Response(
+                {'error': 'Shop not found or you do not own this shop'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        deal = serializer.save(shop=shop)
+        return Response(
+            DealSerializer(deal).data,
+            status=status.HTTP_201_CREATED
+        )
+    
+    @extend_schema(
+        summary="Update deal",
+        description="Update deal details (salon owners only)",
+        request=DealCreateUpdateSerializer,
+        responses={
+            200: DealSerializer,
+            400: OpenApiResponse(description="Bad Request"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Deal not found")
+        },
+        tags=['Deals - Client']
+    )
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="Partial update deal",
+        description="Partially update deal details (salon owners only)",
+        request=DealCreateUpdateSerializer,
+        responses={
+            200: DealSerializer,
+            400: OpenApiResponse(description="Bad Request"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Deal not found")
+        },
+        tags=['Deals - Client']
+    )
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+    
+    @extend_schema(
+        summary="Delete deal",
+        description="Delete a deal/package (salon owners only)",
+        responses={
+            200: SuccessResponseSerializer,
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Deal not found")
+        },
+        tags=['Deals - Client']
+    )
+    def destroy(self, request, *args, **kwargs):
+        deal = self.get_object()
+        deal_name = deal.name
+        self.perform_destroy(deal)
+        return Response(
+            {"success": True, "message": f"Deal '{deal_name}' deleted successfully"},
+            status=status.HTTP_200_OK
+        )
+    
+    @extend_schema(
+        summary="Toggle deal active status",
+        description="Enable or disable a deal (salon owners only)",
+        request=None,
+        responses={
+            200: DealSerializer,
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Deal not found")
+        },
+        tags=['Deals - Client']
+    )
+    @action(detail=True, methods=['patch'], permission_classes=[IsClient, IsShopOwner])
+    def toggle_active(self, request, pk=None):
+        """Toggle deal active status"""
+        deal = self.get_object()
+        deal.is_active = not deal.is_active
+        deal.save(update_fields=['is_active'])
+        return Response(DealSerializer(deal).data)
+    
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active']:
+            return [IsClient(), IsShopOwner()]
+        return super().get_permissions()
+

@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'apps.calendars',
     'apps.agent',
     'apps.voice',
+    'apps.scraper',
 ]
 
 MIDDLEWARE = [
@@ -136,7 +137,6 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'static']
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media files
@@ -192,6 +192,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Subscriptions - Admin', 'description': 'Admin subscription plan management'},
         {'name': 'Calendars', 'description': 'Google Calendar integration for booking sync'},
         {'name': 'AI Agent', 'description': 'AI-powered chat assistant for booking and shop management'},
+        {'name': 'Scraper', 'description': 'Website scraping for shop creation from URLs'},
     ],
     'APPEND_COMPONENTS': {
         'securitySchemes': {
@@ -248,6 +249,9 @@ FIREBASE_CREDENTIALS_PATH = env('FIREBASE_CREDENTIALS_PATH', default='')
 # OpenAI Configuration (for AI Agent)
 OPENAI_API_KEY = env('OPENAI_API_KEY', default='')
 OPENAI_MODEL = env('OPENAI_MODEL', default='gpt-4-turbo-preview')
+
+# Firecrawl Configuration (for AI Scraper)
+FIRECRAWL_API_KEY = env('FIRECRAWL_API_KEY', default=None)
 
 # Pinecone Configuration (for AI Agent knowledge base)
 PINECONE_API_KEY = env('PINECONE_API_KEY', default='')

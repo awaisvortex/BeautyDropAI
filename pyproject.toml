@@ -77,6 +77,12 @@ channels-redis = "^4.2.0"
 websockets = "^12.0"
 daphne = "^4.1.0"
 
+# Web Scraping
+httpx = ">=0.28.0"
+beautifulsoup4 = "^4.12.0"
+lxml = "^5.1.0"
+firecrawl-py = "^4.12.0"
+
 [tool.poetry.group.dev.dependencies]
 # Testing
 pytest = "^8.0.0"
