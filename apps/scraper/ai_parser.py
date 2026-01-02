@@ -337,10 +337,28 @@ def validate_and_clean(data: dict) -> dict:
                 'country': first_addr.get('country', 'Pakistan'),
             }
         
+        # Handle address - might be string or dict with street/city/etc
+        raw_address = shop_data.get('address', '')
+        if isinstance(raw_address, dict):
+            # AI returned address as structured dict
+            address_parts = {
+                'address': raw_address.get('street') or raw_address.get('street_address') or raw_address.get('line_1', ''),
+                'city': raw_address.get('city', ''),
+                'state': raw_address.get('state', ''),
+                'postal_code': raw_address.get('postal_code') or raw_address.get('zip', ''),
+                'country': raw_address.get('country', 'Pakistan'),
+            }
+            # Also try line_2 if present
+            if raw_address.get('line_2'):
+                address_parts['address'] = f"{address_parts['address']}, {raw_address.get('line_2')}"
+        else:
+            # Keep existing address_parts logic (from addresses array)
+            pass
+        
         cleaned['shop'] = {
             'name': str(shop_data.get('name', '')).strip()[:255],
             'description': str(shop_data.get('description', '')).strip(),
-            'address': str(address_parts.get('address') or shop_data.get('address', '')).strip()[:500],
+            'address': str(address_parts.get('address') or raw_address or '').strip()[:500],
             'city': str(address_parts.get('city') or shop_data.get('city', '')).strip()[:100],
             'state': str(address_parts.get('state') or shop_data.get('state', '')).strip()[:100],
             'postal_code': str(address_parts.get('postal_code') or shop_data.get('postal_code', '')).strip()[:20],
