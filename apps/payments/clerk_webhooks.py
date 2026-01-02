@@ -121,6 +121,21 @@ def handle_user_created(event):
             else:
                 logger.warning(f"Failed to link staff member for user {user.email}")
         
+        # Create Client profile if this is a client signup
+        if user_role == 'client':
+            from apps.clients.models import Client
+            client, created = Client.objects.get_or_create(
+                user=user,
+                defaults={
+                    'business_name': f"{user.first_name}'s Business" if user.first_name else "My Business",
+                    'phone': '',  # Will be updated later during onboarding
+                }
+            )
+            if created:
+                logger.info(f"Created Client profile for user {user.email}")
+            else:
+                logger.info(f"Client profile already exists for user {user.email}")
+        
         # Check if Stripe customer already exists
         if hasattr(user, 'stripe_customer'):
             logger.info(f"Stripe customer already exists for user {user.email}")
@@ -172,7 +187,8 @@ def handle_user_updated(event):
     """
     Handle user.updated event from Clerk.
     
-    Syncs user email and name changes to Stripe customer record.
+    Syncs user email, name, and role changes to local database and Stripe.
+    Also creates Client profile if user's role is updated to 'client'.
     """
     start_time = time.time()
     user_data = event['data']
@@ -187,43 +203,135 @@ def handle_user_updated(event):
                 clerk_user_id=user_data['id']
             )
         except User.DoesNotExist:
-            error_msg = f"User not found for clerk_user_id: {user_data['id']}"
-            logger.warning(error_msg)
-            log_webhook_event('user.updated', event_id, event, False, error_msg)
+            # User doesn't exist in our DB yet - trigger creation
+            logger.warning(f"User not found for clerk_user_id: {user_data['id']}, triggering creation")
+            handle_user_created(event)
             return
+        
+        # Extract updated data from Clerk
+        email_addresses = user_data.get('email_addresses', [])
+        primary_email = next(
+            (email['email_address'] for email in email_addresses 
+             if email.get('id') == user_data.get('primary_email_address_id')),
+            email_addresses[0]['email_address'] if email_addresses else user.email
+        )
+        
+        first_name = user_data.get('first_name', user.first_name)
+        last_name = user_data.get('last_name', user.last_name)
+        
+        # Check role from both public_metadata and unsafe_metadata
+        public_metadata = user_data.get('public_metadata', {})
+        unsafe_metadata = user_data.get('unsafe_metadata', {})
+        
+        role_from_metadata = (
+            public_metadata.get('role') or 
+            unsafe_metadata.get('role')
+        )
+        
+        # Determine new role
+        if role_from_metadata == 'staff':
+            new_role = 'staff'
+        elif role_from_metadata == 'client':
+            new_role = 'client'
+        else:
+            new_role = user.role  # Keep existing role if not specified
+        
+        # Track what changed
+        changes = []
+        
+        # Update user fields if changed
+        if user.email != primary_email:
+            user.email = primary_email
+            changes.append('email')
+        if user.first_name != first_name:
+            user.first_name = first_name
+            changes.append('first_name')
+        if user.last_name != last_name:
+            user.last_name = last_name
+            changes.append('last_name')
+        if user.role != new_role:
+            old_role = user.role
+            user.role = new_role
+            changes.append(f'role ({old_role} -> {new_role})')
+        
+        if changes:
+            user.save()
+            logger.info(f"Updated user {user.email}: {', '.join(changes)}")
+        
+        # Create Client profile if user became a client
+        if new_role == 'client':
+            from apps.clients.models import Client
+            client, created = Client.objects.get_or_create(
+                user=user,
+                defaults={
+                    'business_name': f"{user.first_name}'s Business" if user.first_name else "My Business",
+                    'phone': '',
+                }
+            )
+            if created:
+                logger.info(f"Created Client profile for user {user.email}")
+        
+        # Handle staff linking if user became staff
+        if new_role == 'staff':
+            from apps.staff.services import handle_staff_signup
+            staff_linked = handle_staff_signup(user_data)
+            if staff_linked:
+                logger.info(f"Staff member linked for user {user.email}")
         
         # Get or create Stripe customer
         if not hasattr(user, 'stripe_customer'):
             logger.warning(f"No Stripe customer for user {user.email}, creating one")
-            # Trigger user.created logic
-            handle_user_created(event)
-            return
+            # Create Stripe customer
+            try:
+                import stripe
+                from django.conf import settings
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                
+                stripe_customer = stripe.Customer.create(
+                    email=user.email,
+                    name=f"{user.first_name} {user.last_name}".strip(),
+                    metadata={
+                        'clerk_user_id': user.clerk_user_id,
+                        'created_via': 'clerk_webhook_user_updated'
+                    }
+                )
+                
+                from apps.payments.models import StripeCustomer
+                StripeCustomer.objects.create(
+                    user=user,
+                    stripe_customer_id=stripe_customer.id,
+                    email=user.email,
+                    metadata=stripe_customer.get('metadata', {})
+                )
+                logger.info(f"Created Stripe customer {stripe_customer.id} for {user.email}")
+            except Exception as e:
+                logger.error(f"Failed to create Stripe customer: {str(e)}", exc_info=True)
+        else:
+            # Update existing Stripe customer
+            try:
+                import stripe
+                from django.conf import settings
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                
+                stripe.Customer.modify(
+                    user.stripe_customer.stripe_customer_id,
+                    email=user.email,
+                    name=f"{user.first_name} {user.last_name}".strip()
+                )
+                
+                # Update local record
+                user.stripe_customer.email = user.email
+                user.stripe_customer.save(update_fields=['email'])
+                
+                logger.info(f"Updated Stripe customer for {user.email}")
+                
+            except Exception as e:
+                logger.error(f"Failed to update Stripe customer: {str(e)}", exc_info=True)
+                # Don't raise - this is not critical
         
-        # Update Stripe customer
-        try:
-            import stripe
-            from django.conf import settings
-            stripe.api_key = settings.STRIPE_SECRET_KEY
-            
-            stripe.Customer.modify(
-                user.stripe_customer.stripe_customer_id,
-                email=user.email,
-                name=f"{user.first_name} {user.last_name}".strip()
-            )
-            
-            # Update local record
-            user.stripe_customer.email = user.email
-            user.stripe_customer.save(update_fields=['email'])
-            
-            processing_time = time.time() - start_time
-            log_webhook_event('user.updated', event_id, event, True)
-            logger.info(f"Updated Stripe customer for {user.email} in {processing_time:.2f}s")
-            
-        except Exception as e:
-            error_msg = f"Failed to update Stripe customer: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            log_webhook_event('user.updated', event_id, event, False, error_msg)
-            # Don't raise - this is not critical
+        processing_time = time.time() - start_time
+        log_webhook_event('user.updated', event_id, event, True)
+        logger.info(f"Processed user.updated for {user.email} in {processing_time:.2f}s")
             
     except Exception as e:
         error_msg = f"Error processing user.updated: {str(e)}"
