@@ -260,18 +260,37 @@ PINECONE_INDEX_NAME = env('PINECONE_INDEX_NAME', default='beautydrop-knowledge')
 
 # Redis Configuration
 REDIS_URL = env('REDIS_URL')
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': REDIS_URL,
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'CONNECTION_POOL_KWARGS': {
-                'ssl_cert_reqs': ssl.CERT_NONE
+
+# Parse Redis URL to check if SSL is needed
+from urllib.parse import urlparse as _urlparse_cache
+_redis_parsed_cache = _urlparse_cache(REDIS_URL)
+_redis_use_ssl = _redis_parsed_cache.scheme == 'rediss'
+
+if _redis_use_ssl:
+    # SSL connection for Cloud Redis (Upstash, Cloud Memorystore, etc.)
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'CONNECTION_POOL_KWARGS': {
+                    'ssl_cert_reqs': ssl.CERT_NONE
+                }
             }
         }
     }
-}
+else:
+    # Non-SSL connection (local development)
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            }
+        }
+    }
 
 # Channel Layers (for WebSocket support)
 # Parse Redis URL to handle SSL properly for Cloud Memorystore

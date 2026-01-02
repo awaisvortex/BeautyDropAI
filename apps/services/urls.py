@@ -5,8 +5,9 @@ from . import views
 app_name = 'services'
 
 router = DefaultRouter()
-router.register(r'services', views.ServiceViewSet, basename='service')
+# Register deals FIRST so /deals/ doesn't get matched by the empty-prefix service viewset
 router.register(r'deals', views.DealViewSet, basename='deal')
+router.register(r'', views.ServiceViewSet, basename='service')
 
 urlpatterns = router.urls
 

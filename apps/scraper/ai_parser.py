@@ -111,9 +111,12 @@ IMPORTANT Guidelines:
     - Example: "Manicure Services" section with bullets → multiple services with category="Manicure"
   - **Standalone Services**: If a heading like "Acrylic Nails" or "Body Waxing" has NO sub-bullets, it IS ITSELF a service
   - **From Images**: Carefully examine screenshots for service menus, price lists, treatment cards
-  - Extract EVERY service visible in images - service names, prices, descriptions
-  - Combine services from images AND text for the complete list
+  - **From Deal Items (IMPORTANT)**: Each item listed in a deal is ALSO a service. For example:
+    - Deal says "Hair Cut + Blow Dry + Manicure" → Add "Hair Cut", "Blow Dry", "Manicure" as separate services
+    - Student Deal includes "Whitening Mani, Whitening Pedi" → Add "Whitening Mani", "Whitening Pedi" as services
+  - Extract EVERY service visible in images, text, AND deal items for the complete list
   - **If no price is visible, use 0 as the price - don't skip the service!**
+  - **GOAL: You should typically extract 20+ services from a salon website. Extract EVERYTHING!**
 
 - **Deals/Packages (IMPORTANT)**:
   - Look for "Deal 1", "Deal 2", "Package", "Special Offer", "Combo", "Bridal Package", "Winter Special", etc.
@@ -405,8 +408,11 @@ def validate_and_clean(data: dict) -> dict:
     # Clean services - handle both dict and malformed data
     services_data = data.get('services', [])
     if not isinstance(services_data, list):
+        logger.warning(f"Services is not a list: {type(services_data)}")
         services_data = []
-        
+    
+    logger.info(f"Processing {len(services_data)} raw services from AI response")
+    
     for service in services_data:
         # Convert string services to dict format (AI sometimes just returns service names)
         if isinstance(service, str):
@@ -496,7 +502,18 @@ def validate_and_clean(data: dict) -> dict:
     default_start = '09:00'
     default_end = '21:00'
     
-    for entry in data.get('schedule', []):
+    # Defensive: ensure schedule is a list
+    schedule_data = data.get('schedule', [])
+    if not isinstance(schedule_data, list):
+        logger.warning(f"Schedule is not a list: {type(schedule_data)}")
+        schedule_data = []
+    
+    for entry in schedule_data:
+        # Defensive: skip non-dict entries
+        if not isinstance(entry, dict):
+            logger.debug(f"Skipping non-dict schedule entry: {type(entry)}")
+            continue
+            
         # Handle alternative day key names
         day = str(entry.get('day_of_week') or entry.get('day', '')).lower().strip()
         if day not in valid_days:
