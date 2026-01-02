@@ -25,6 +25,10 @@ RUN poetry config virtualenvs.create false \
 # Copy the rest of the application code
 COPY . /app
 
+# Copy worker entrypoint and make executable
+COPY worker_entrypoint.sh /app/
+RUN chmod +x /app/worker_entrypoint.sh
+
 EXPOSE 8080
 
 # Use daphne ASGI server for WebSocket support

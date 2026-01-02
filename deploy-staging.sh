@@ -43,16 +43,32 @@ echo "✅ Deployed"
 echo ""
 
 # Step 5: Get service URL
-echo "🌐 Step 5: Getting service URL..."
+echo "🌐 Step 5: Getting service URL (API)..."
 SERVICE_URL=$(gcloud run services describe "${SERVICE_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
   --format='value(status.url)')
-echo "✅ Service URL: ${SERVICE_URL}"
+echo "✅ API Service URL: ${SERVICE_URL}"
 echo ""
 
-# Step 6: Test health endpoint
-echo "🏥 Step 6: Testing health endpoint..."
+# Step 6: Deploy Worker Service
+echo "👷 Step 6: Deploying Worker Service..."
+gcloud run deploy "beautydrop-worker-staging" \
+  --image "${IMAGE_NAME}" \
+  --region "${REGION}" \
+  --platform managed \
+  --project "${PROJECT_ID}" \
+  --memory 1Gi \
+  --cpu 1 \
+  --no-cpu-throttling \
+  --min-instances 1 \
+  --command /app/worker_entrypoint.sh \
+  --update-env-vars "DJANGO_SETTINGS_MODULE=config.settings.production"
+echo "✅ Worker Deployed"
+echo ""
+
+# Step 7: Test health endpoint
+echo "🏥 Step 7: Testing health endpoint..."
 curl -s "${SERVICE_URL}/api/v1/auth/health/" | python3 -m json.tool || echo "⚠️ Could not parse health response as JSON"
 echo ""
 echo ""

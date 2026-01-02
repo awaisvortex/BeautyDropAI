@@ -21,7 +21,7 @@ steps:
       - "push"
       - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app-staging:latest"
 
-  # Deploy to Cloud Run (Staging)
+  # Deploy API to Cloud Run (Staging)
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: gcloud
     args:
@@ -47,6 +47,38 @@ steps:
       - "300"
       - "--port"
       - "8080"
+      - "--update-env-vars"
+      - "DJANGO_SETTINGS_MODULE=config.settings.production"
+
+  # Deploy Worker to Cloud Run (Staging)
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - "run"
+      - "deploy"
+      - "beautydrop-worker-staging"
+      - "--image"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app-staging:$COMMIT_SHA"
+      - "--region"
+      - "us-east1"
+      - "--platform"
+      - "managed"
+      - "--allow-unauthenticated"
+      - "--memory"
+      - "1Gi"
+      - "--cpu"
+      - "1"
+      - "--no-cpu-throttling"
+      - "--min-instances"
+      - "1"
+      - "--max-instances"
+      - "5"
+      - "--timeout"
+      - "300"
+      - "--port"
+      - "8080"
+      - "--command"
+      - "/app/worker_entrypoint.sh"
       - "--update-env-vars"
       - "DJANGO_SETTINGS_MODULE=config.settings.production"
 
