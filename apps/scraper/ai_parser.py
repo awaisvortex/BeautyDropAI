@@ -355,10 +355,18 @@ def validate_and_clean(data: dict) -> dict:
             # Keep existing address_parts logic (from addresses array)
             pass
         
+        # Determine final address string - ensure we don't stringify dicts
+        final_address = ''
+        if address_parts.get('address'):
+            final_address = str(address_parts['address'])
+        elif isinstance(raw_address, str) and raw_address:
+            final_address = raw_address
+        # If raw_address is a dict, we should have already extracted to address_parts
+        
         cleaned['shop'] = {
             'name': str(shop_data.get('name', '')).strip()[:255],
             'description': str(shop_data.get('description', '')).strip(),
-            'address': str(address_parts.get('address') or raw_address or '').strip()[:500],
+            'address': final_address.strip()[:500],
             'city': str(address_parts.get('city') or shop_data.get('city', '')).strip()[:100],
             'state': str(address_parts.get('state') or shop_data.get('state', '')).strip()[:100],
             'postal_code': str(address_parts.get('postal_code') or shop_data.get('postal_code', '')).strip()[:20],
