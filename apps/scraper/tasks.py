@@ -212,6 +212,7 @@ def create_shop_from_scrape_task(
                         name=deal['name'],
                         description=deal.get('description', ''),
                         price=deal.get('price', 0),
+                        duration_minutes=deal.get('duration_minutes', 60),
                         included_items=deal.get('included_items', []),
                         is_active=True,
                     )

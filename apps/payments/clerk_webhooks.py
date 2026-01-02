@@ -66,31 +66,54 @@ def handle_user_created(event):
             email_addresses[0]['email_address'] if email_addresses else None
         )
         
-        # Check if this is a staff signup (from invitation)
+        # Check role from both public_metadata and unsafe_metadata
+        # Frontend may set role in unsafe_metadata during signup
         public_metadata = user_data.get('public_metadata', {})
-        is_staff = public_metadata.get('role') == 'staff'
+        unsafe_metadata = user_data.get('unsafe_metadata', {})
+        
+        # Role can be in either metadata location
+        role_from_metadata = (
+            public_metadata.get('role') or 
+            unsafe_metadata.get('role')
+        )
+        
+        # Determine user role - support client, staff, and customer
+        if role_from_metadata == 'staff':
+            user_role = 'staff'
+        elif role_from_metadata == 'client':
+            user_role = 'client'
+        else:
+            user_role = 'customer'
+        
+        logger.info(f"Determined role for user: {role_from_metadata} -> {user_role}")
         
         # Get or create the user
         try:
             user = User.objects.get(clerk_user_id=user_data['id'])
             logger.info(f"Found existing user for clerk_user_id: {user_data['id']}")
+            
+            # Update role if it was set in metadata but user exists with default role
+            if user.role == 'customer' and user_role != 'customer':
+                user.role = user_role
+                user.save(update_fields=['role'])
+                logger.info(f"Updated existing user role from customer to {user_role}")
+                
         except User.DoesNotExist:
             # User doesn't exist - create them
-            # This happens for staff signups via magic link
-            logger.info(f"Creating new user for clerk_user_id: {user_data['id']}")
+            logger.info(f"Creating new user for clerk_user_id: {user_data['id']} with role: {user_role}")
             
             user = User.objects.create(
                 clerk_user_id=user_data['id'],
                 email=primary_email or '',
                 first_name=user_data.get('first_name', ''),
                 last_name=user_data.get('last_name', ''),
-                role='staff' if is_staff else 'customer',
+                role=user_role,
                 email_verified=True,
                 is_active=True
             )
         
         # Handle staff linking if this is a staff signup
-        if is_staff:
+        if user_role == 'staff':
             from apps.staff.services import handle_staff_signup
             staff_linked = handle_staff_signup(user_data)
             if staff_linked:
