@@ -71,6 +71,10 @@ class ExtractedDealDataSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255, required=True, help_text="Deal/package name")
     description = serializers.CharField(required=False, allow_blank=True, help_text="Deal description")
     price = serializers.DecimalField(max_digits=10, decimal_places=2, required=True, help_text="Bundle price")
+    duration_minutes = serializers.IntegerField(
+        min_value=15, max_value=480, required=False, default=60,
+        help_text="Total duration for the deal booking in minutes (default 60)"
+    )
     included_items = serializers.ListField(
         child=serializers.CharField(max_length=255),
         required=True,
@@ -161,42 +165,66 @@ class ScrapeJobListSerializer(serializers.ModelSerializer):
 @extend_schema_serializer(
     examples=[
         OpenApiExample(
-            'Confirm with defaults',
-            description='Use extracted data as-is',
-            value={'use_extracted': True},
+            'Confirm with extracted data',
+            description='Use extracted shop data as-is',
+            value={
+                'shop': {
+                    'name': 'Example Salon',
+                    'city': 'Los Angeles',
+                    'phone': '+12025551234'
+                }
+            },
             request_only=True,
         ),
         OpenApiExample(
-            'Override shop name',
-            description='Override specific fields',
+            'Confirm with edits',
+            description='Modify extracted data before creating',
             value={
-                'use_extracted': True,
-                'shop_data': {'name': 'My Custom Shop Name'}
+                'shop': {
+                    'name': 'My Custom Salon Name',
+                    'city': 'New York',
+                    'phone': '+19005551234'
+                },
+                'services': [
+                    {'name': 'Premium Haircut', 'price': 55, 'duration_minutes': 45}
+                ]
             },
             request_only=True,
         ),
     ]
 )
 class ScrapeConfirmSerializer(serializers.Serializer):
-    """Request serializer for confirming and creating shop from scrape job"""
-    use_extracted = serializers.BooleanField(
-        default=True,
-        help_text="If true, use extracted data as base. If false, only use provided data."
-    )
+    """
+    Request serializer for confirming and creating shop from scrape job.
+    
+    Always requires shop data (either extracted or edited by owner).
+    Pass the extracted data as-is or modify it before confirming.
+    """
     shop = ExtractedShopDataSerializer(
-        required=False,
-        help_text="Override extracted shop data"
+        required=True,
+        help_text="Shop data (extracted or edited). Name is required."
     )
     services = ExtractedServiceDataSerializer(
         many=True,
         required=False,
-        help_text="Override extracted services"
+        help_text="Services to create (pass extracted or edited list)"
     )
     schedule = ExtractedScheduleDataSerializer(
         many=True,
         required=False,
-        help_text="Override extracted schedule"
+        help_text="Schedule entries (pass extracted or edited list)"
     )
+    deals = ExtractedDealDataSerializer(
+        many=True,
+        required=False,
+        help_text="Deals to create (pass extracted or edited list)"
+    )
+    
+    def validate_shop(self, value):
+        """Ensure shop name is provided."""
+        if not value.get('name'):
+            raise serializers.ValidationError("Shop name is required")
+        return value
 
 
 class ScrapeConfirmResponseSerializer(serializers.Serializer):

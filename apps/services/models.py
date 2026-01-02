@@ -82,6 +82,13 @@ class Deal(BaseModel):
         validators=[validate_positive_decimal]
     )
     
+    # Duration for booking slots (deals don't require staff, just time)
+    duration_minutes = models.IntegerField(
+        default=60,
+        validators=[validate_duration],
+        help_text='Duration in minutes for deal booking slots'
+    )
+    
     # Service items included in this deal (stored as text - may not match exact services)
     # Example: ["Hair cut", "Blowdry", "Manicure OR Pedicure", "Skin glow"]
     included_items = models.JSONField(default=list)

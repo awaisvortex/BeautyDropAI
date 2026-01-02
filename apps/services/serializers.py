@@ -86,7 +86,7 @@ class DealSerializer(serializers.ModelSerializer):
         model = Deal
         fields = [
             'id', 'shop', 'shop_name', 'name', 'description',
-            'price', 'included_items', 'items_count', 'is_active',
+            'price', 'duration_minutes', 'included_items', 'items_count', 'is_active',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'shop', 'created_at', 'updated_at']
@@ -99,6 +99,10 @@ class DealSerializer(serializers.ModelSerializer):
 class DealCreateUpdateSerializer(serializers.ModelSerializer):
     """Input serializer for creating/updating deals"""
     shop_id = serializers.UUIDField(write_only=True, required=False)
+    duration_minutes = serializers.IntegerField(
+        min_value=15, max_value=480, default=60,
+        help_text='Duration in minutes for deal booking slots (default 60)'
+    )
     included_items = serializers.ListField(
         child=serializers.CharField(max_length=255),
         help_text='List of services/items included in this deal',
@@ -108,7 +112,7 @@ class DealCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         from .models import Deal
         model = Deal
-        fields = ['shop_id', 'name', 'description', 'price', 'included_items', 'is_active']
+        fields = ['shop_id', 'name', 'description', 'price', 'duration_minutes', 'included_items', 'is_active']
     
     def validate_price(self, value):
         if value < 0:

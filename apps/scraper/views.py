@@ -235,35 +235,15 @@ Frontend should poll this endpoint and show loading until HTTP 200 is returned."
         serializer = ScrapeConfirmSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        use_extracted = serializer.validated_data.get('use_extracted', True)
         extracted = scrape_job.extracted_data
         
-        # Merge extracted data with overrides
-        shop_data = extracted.get('shop', {})
-        services_data = extracted.get('services', [])
-        schedule_data = extracted.get('schedule', [])
-        deals_data = extracted.get('deals', [])
+        # Shop data comes from request (required)
+        shop_data = serializer.validated_data['shop']
         
-        if not use_extracted:
-            shop_data = {}
-            services_data = []
-            schedule_data = []
-            deals_data = []
-        
-        # Apply overrides
-        if serializer.validated_data.get('shop'):
-            shop_data.update(serializer.validated_data['shop'])
-        if serializer.validated_data.get('services'):
-            services_data = serializer.validated_data['services']
-        if serializer.validated_data.get('schedule'):
-            schedule_data = serializer.validated_data['schedule']
-        
-        # Validate required shop data
-        if not shop_data.get('name'):
-            return Response(
-                {'error': 'Shop name is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Services, schedule, deals: use from request if provided, otherwise fall back to extracted
+        services_data = serializer.validated_data.get('services') or extracted.get('services', [])
+        schedule_data = serializer.validated_data.get('schedule') or extracted.get('schedule', [])
+        deals_data = serializer.validated_data.get('deals') or extracted.get('deals', [])
         
         # Update status to CREATING
         scrape_job.status = ScrapeJobStatus.CREATING
