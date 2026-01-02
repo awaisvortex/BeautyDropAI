@@ -24,8 +24,11 @@ class Booking(BaseModel):
     
     service = models.ForeignKey(
         'services.Service',
-        on_delete=models.PROTECT,
-        related_name='bookings'
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bookings',
+        help_text='Service booked (NULL if service was deleted)'
     )
     
     time_slot = models.OneToOneField(
