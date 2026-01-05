@@ -61,7 +61,7 @@ class GetMyBookingsTool(BaseTool):
             else:
                 return {"success": False, "error": "Invalid role for this tool"}
             
-            bookings = bookings.select_related('shop', 'service', 'staff_member', 'customer__user')
+            bookings = bookings.select_related('shop', 'service', 'deal', 'staff_member', 'customer__user')
             
             # Apply status filter
             if status != 'all':
@@ -85,11 +85,23 @@ class GetMyBookingsTool(BaseTool):
             
             booking_list = []
             for b in bookings:
+                # Get item name (service or deal)
+                if b.service:
+                    item_name = b.service.name
+                    is_deal = False
+                elif b.deal:
+                    item_name = b.deal.name
+                    is_deal = True
+                else:
+                    item_name = "Unknown"
+                    is_deal = False
+                
                 booking_data = {
                     "booking_id": str(b.id),
                     "shop": b.shop.name,
                     "shop_id": str(b.shop.id),
-                    "service": b.service.name,
+                    "item_name": item_name,
+                    "is_deal_booking": is_deal,
                     "datetime": b.booking_datetime.isoformat(),
                     "formatted_datetime": b.booking_datetime.strftime("%B %d, %Y at %I:%M %p"),
                     "formatted_time": b.booking_datetime.strftime("%I:%M %p"),
@@ -514,7 +526,7 @@ class RescheduleMyBookingTool(BaseTool):
 
             customer = Customer.objects.get(user=user)
             
-            booking = Booking.objects.select_related('shop', 'service').get(
+            booking = Booking.objects.select_related('shop', 'service', 'deal').get(
                 id=kwargs['booking_id']
             )
             
@@ -565,12 +577,21 @@ class RescheduleMyBookingTool(BaseTool):
             
             logger.info(f"Customer rescheduled booking {booking.id} from {old_datetime} to {new_dt}")
             
+            # Get item name (service or deal)
+            if booking.service:
+                item_name = booking.service.name
+            elif booking.deal:
+                item_name = booking.deal.name
+            else:
+                item_name = "appointment"
+            
             return {
                 "success": True,
                 "message": f"Your appointment has been rescheduled from {old_datetime.strftime('%B %d at %I:%M %p')} to {new_dt.strftime('%B %d at %I:%M %p')}",
                 "booking": {
                     "booking_id": str(booking.id),
-                    "service": booking.service.name,
+                    "item_name": item_name,
+                    "is_deal_booking": booking.is_deal_booking,
                     "shop": booking.shop.name,
                     "old_datetime": old_datetime.isoformat(),
                     "new_datetime": new_dt.isoformat(),
@@ -596,6 +617,7 @@ class CancelBookingTool(BaseTool):
     description = """
     Cancel an existing booking. For customers, cancels their own booking.
     For shop owners, can cancel any booking at their shop.
+    Works for both service bookings and deal bookings.
     Requires booking_id.
     """
     allowed_roles = ["customer", "client"]
@@ -603,7 +625,7 @@ class CancelBookingTool(BaseTool):
     @property
     def parameters(self) -> Dict[str, Any]:
         return {
-            "type": "object",
+            "type": "object",   
             "properties": {
                 "booking_id": {
                     "type": "string",
@@ -624,7 +646,7 @@ class CancelBookingTool(BaseTool):
         
         try:
             booking_id = kwargs['booking_id']
-            booking = Booking.objects.select_related('shop', 'service').get(id=booking_id)
+            booking = Booking.objects.select_related('shop', 'service', 'deal').get(id=booking_id)
             
             if not user or not user.is_authenticated:
                 return {"success": False, "error": "User must be logged in"}
@@ -658,13 +680,26 @@ class CancelBookingTool(BaseTool):
             booking.cancelled_by = cancelled_by
             booking.save()
             
+            # Get the item name (service or deal)
+            if booking.service:
+                item_name = booking.service.name
+                item_type = "service"
+            elif booking.deal:
+                item_name = booking.deal.name
+                item_type = "deal"
+            else:
+                item_name = "appointment"
+                item_type = "booking"
+            
             return {
                 "success": True,
-                "message": f"Booking for {booking.service.name} at {booking.shop.name} has been cancelled.",
+                "message": f"Booking for {item_name} at {booking.shop.name} has been cancelled.",
                 "cancelled_booking": {
                     "booking_id": str(booking.id),
                     "shop": booking.shop.name,
-                    "service": booking.service.name,
+                    "item_name": item_name,
+                    "item_type": item_type,
+                    "is_deal_booking": booking.is_deal_booking,
                     "original_datetime": booking.booking_datetime.isoformat()
                 }
             }
@@ -724,7 +759,7 @@ class GetShopBookingsTool(BaseTool):
                 return {"success": False, "error": "No active shop found"}
             
             bookings = Booking.objects.filter(shop=shop).select_related(
-                'customer__user', 'service', 'staff_member'
+                'customer__user', 'service', 'deal', 'staff_member'
             )
             
             # Date filter
@@ -753,11 +788,23 @@ class GetShopBookingsTool(BaseTool):
             
             booking_list = []
             for b in bookings:
+                # Get item name (service or deal)
+                if b.service:
+                    item_name = b.service.name
+                    is_deal = False
+                elif b.deal:
+                    item_name = b.deal.name
+                    is_deal = True
+                else:
+                    item_name = "Unknown"
+                    is_deal = False
+                
                 booking_list.append({
                     "booking_id": str(b.id),
                     "customer": b.customer.user.full_name,
                     "customer_email": b.customer.user.email,
-                    "service": b.service.name,
+                    "item_name": item_name,
+                    "is_deal_booking": is_deal,
                     "datetime": b.booking_datetime.isoformat(),
                     "time": b.booking_datetime.strftime("%I:%M %p"),
                     "price": float(b.total_price),
@@ -820,13 +867,22 @@ class ConfirmBookingTool(BaseTool):
             booking.status = 'confirmed'
             booking.save(update_fields=['status', 'updated_at'])
             
+            # Get item name (service or deal)
+            if booking.service:
+                item_name = booking.service.name
+            elif booking.deal:
+                item_name = booking.deal.name
+            else:
+                item_name = "appointment"
+            
             return {
                 "success": True,
                 "message": f"Booking confirmed for {booking.customer.user.full_name}",
                 "booking": {
                     "booking_id": str(booking.id),
                     "customer": booking.customer.user.full_name,
-                    "service": booking.service.name,
+                    "item_name": item_name,
+                    "is_deal_booking": booking.is_deal_booking,
                     "datetime": booking.booking_datetime.strftime("%B %d at %I:%M %p"),
                     "status": "confirmed"
                 }

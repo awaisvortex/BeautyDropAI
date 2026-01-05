@@ -16,6 +16,7 @@ class CompleteBookingTool(BaseTool):
     Mark a booking/appointment as completed.
     Use this after a service has been provided to the customer.
     Only staff members can mark their own bookings as complete.
+    Works for both service and deal bookings.
     """
     allowed_roles = ["staff"]
     
@@ -46,12 +47,17 @@ class CompleteBookingTool(BaseTool):
             staff = StaffMember.objects.get(user=user)
             
             booking = Booking.objects.select_related(
-                'customer__user', 'service', 'shop'
+                'customer__user', 'service', 'deal', 'shop'
             ).get(id=kwargs['booking_id'])
             
-            # Verify it's the staff's booking
-            if booking.staff_member != staff:
-                return {"success": False, "error": "This booking is not assigned to you"}
+            # For deal bookings (no staff_member), check shop ownership
+            # For service bookings, verify it's the staff's booking
+            if booking.is_deal_booking:
+                if booking.shop != staff.shop:
+                    return {"success": False, "error": "This booking is not at your shop"}
+            else:
+                if booking.staff_member != staff:
+                    return {"success": False, "error": "This booking is not assigned to you"}
             
             # Check status
             if booking.status == 'completed':
@@ -65,19 +71,27 @@ class CompleteBookingTool(BaseTool):
                 booking.notes = (booking.notes + "\n" if booking.notes else "") + f"Staff notes: {kwargs['notes']}"
             booking.save()
             
-            # Update service booking count
-            booking.service.booking_count += 1
-            booking.service.save(update_fields=['booking_count'])
+            # Get item name (service or deal)
+            if booking.service:
+                item_name = booking.service.name
+                # Update service booking count
+                booking.service.booking_count += 1
+                booking.service.save(update_fields=['booking_count'])
+            elif booking.deal:
+                item_name = booking.deal.name
+            else:
+                item_name = "appointment"
             
             logger.info(f"Staff {staff.name} completed booking {booking.id}")
             
             return {
                 "success": True,
-                "message": f"Booking marked as completed! {booking.service.name} for {booking.customer.user.full_name}",
+                "message": f"Booking marked as completed! {item_name} for {booking.customer.user.full_name}",
                 "booking": {
                     "id": str(booking.id),
                     "customer": booking.customer.user.full_name,
-                    "service": booking.service.name,
+                    "item_name": item_name,
+                    "is_deal_booking": booking.is_deal_booking,
                     "datetime": booking.booking_datetime.strftime("%B %d at %I:%M %p"),
                     "status": "completed"
                 }
@@ -174,13 +188,35 @@ class GetMyScheduleTool(BaseTool):
                 start_date = target_date
                 end_date = target_date
             
-            # Get bookings for the date range
+            # Get bookings for the date range (staff member's bookings)
             bookings = Booking.objects.filter(
                 staff_member=staff,
                 booking_datetime__date__gte=start_date,
                 booking_datetime__date__lte=end_date,
                 status__in=['pending', 'confirmed']
-            ).select_related('customer__user', 'service').order_by('booking_datetime')
+            ).select_related('customer__user', 'service', 'deal').order_by('booking_datetime')
+            
+            # Helper to format booking data
+            def format_booking(b):
+                if b.service:
+                    item_name = b.service.name
+                    duration = b.service.duration_minutes
+                elif b.deal:
+                    item_name = b.deal.name
+                    duration = b.duration_minutes
+                else:
+                    item_name = "Appointment"
+                    duration = b.duration_minutes
+                
+                return {
+                    "id": str(b.id),
+                    "time": b.booking_datetime.strftime("%I:%M %p"),
+                    "customer": b.customer.user.full_name,
+                    "item_name": item_name,
+                    "is_deal_booking": b.is_deal_booking,
+                    "duration": duration,
+                    "status": b.status
+                }
             
             if view == 'week':
                 # Group by date
@@ -188,17 +224,7 @@ class GetMyScheduleTool(BaseTool):
                 for day_offset in range(7):
                     day = start_date + timedelta(days=day_offset)
                     day_bookings = [b for b in bookings if b.booking_datetime.date() == day]
-                    schedule[day.strftime('%A, %B %d')] = [
-                        {
-                            "id": str(b.id),
-                            "time": b.booking_datetime.strftime("%I:%M %p"),
-                            "customer": b.customer.user.full_name,
-                            "service": b.service.name,
-                            "duration": b.service.duration_minutes,
-                            "status": b.status
-                        }
-                        for b in day_bookings
-                    ]
+                    schedule[day.strftime('%A, %B %d')] = [format_booking(b) for b in day_bookings]
                 
                 total = len(bookings)
                 return {
@@ -212,20 +238,13 @@ class GetMyScheduleTool(BaseTool):
                 }
             else:
                 # Single day view
-                booking_list = [
-                    {
-                        "id": str(b.id),
-                        "time": b.booking_datetime.strftime("%I:%M %p"),
-                        "customer": b.customer.user.full_name,
-                        "customer_phone": getattr(b.customer, 'phone', None),
-                        "service": b.service.name,
-                        "duration": b.service.duration_minutes,
-                        "price": float(b.total_price),
-                        "status": b.status,
-                        "notes": b.notes
-                    }
-                    for b in bookings
-                ]
+                booking_list = []
+                for b in bookings:
+                    data = format_booking(b)
+                    data["customer_phone"] = getattr(b.customer, 'phone', None)
+                    data["price"] = float(b.total_price)
+                    data["notes"] = b.notes
+                    booking_list.append(data)
                 
                 return {
                     "success": True,
@@ -320,18 +339,25 @@ class GetCustomerHistoryTool(BaseTool):
                 customer=customer,
                 shop=shop,
                 status='completed'
-            ).select_related('service', 'staff_member').order_by('-booking_datetime')[:limit]
+            ).select_related('service', 'deal', 'staff_member').order_by('-booking_datetime')[:limit]
             
-            history = [
-                {
+            history = []
+            for b in bookings:
+                if b.service:
+                    item_name = b.service.name
+                elif b.deal:
+                    item_name = b.deal.name
+                else:
+                    item_name = "Appointment"
+                
+                history.append({
                     "date": b.booking_datetime.strftime("%B %d, %Y"),
-                    "service": b.service.name,
+                    "item_name": item_name,
+                    "is_deal_booking": b.is_deal_booking,
                     "price": float(b.total_price),
                     "staff": b.staff_member.name if b.staff_member else None,
                     "notes": b.notes if b.notes else None
-                }
-                for b in bookings
-            ]
+                })
             
             # Get total visits and last visit
             total_visits = Booking.objects.filter(
@@ -447,18 +473,27 @@ class GetTodaySummaryTool(BaseTool):
             today_bookings = Booking.objects.filter(
                 staff_member=staff,
                 booking_datetime__date=today
-            ).select_related('customer__user', 'service')
+            ).select_related('customer__user', 'service', 'deal')
             
             completed = []
             upcoming = []
             pending_confirm = []
             
             for b in today_bookings:
+                # Get item name (service or deal)
+                if b.service:
+                    item_name = b.service.name
+                elif b.deal:
+                    item_name = b.deal.name
+                else:
+                    item_name = "Appointment"
+                
                 booking_data = {
                     "id": str(b.id),
                     "time": b.booking_datetime.strftime("%I:%M %p"),
                     "customer": b.customer.user.full_name,
-                    "service": b.service.name
+                    "item_name": item_name,
+                    "is_deal_booking": b.is_deal_booking
                 }
                 
                 if b.status == 'completed':

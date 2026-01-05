@@ -14,8 +14,16 @@ def get_booking_description(booking, user_role: str) -> str:
     """
     Build a formatted description for the calendar event based on user role.
     """
+    # Handle both service and deal bookings
+    if booking.service:
+        item_name = booking.service.name
+    elif booking.deal:
+        item_name = booking.deal.name
+    else:
+        item_name = "Appointment"
+    
     lines = [
-        f"Service: {booking.service.name}",
+        f"{'Deal' if booking.is_deal_booking else 'Service'}: {item_name}",
         f"Shop: {booking.shop.name}",
         f"Price: ${booking.total_price}",
     ]

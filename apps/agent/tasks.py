@@ -237,3 +237,38 @@ def remove_deal_from_pinecone_task(deal_id: str):
         logger.error(f"Failed to remove deal {deal_id}: {e}")
         return {"success": False, "error": str(e)}
 
+
+@shared_task(name='agent.remove_shop_deals')
+def remove_shop_deals_from_pinecone_task(deal_ids: list):
+    """
+    Celery task to remove multiple deals from Pinecone in batch (used when deleting a shop).
+    
+    Args:
+        deal_ids: List of deal UUIDs to remove.
+    """
+    if not deal_ids:
+        return {"success": True, "count": 0}
+    
+    try:
+        from apps.agent.services.pinecone_service import PineconeService
+        from apps.agent.models import KnowledgeDocument
+        
+        pinecone_service = PineconeService()
+        
+        # Batch delete from Pinecone - deals are in NAMESPACE_SERVICES
+        success = pinecone_service.delete(deal_ids, namespace=PineconeService.NAMESPACE_SERVICES)
+        
+        if success:
+            logger.info(f"Batch deleted {len(deal_ids)} deals from Pinecone")
+        
+        # Batch delete knowledge documents
+        deleted_count, _ = KnowledgeDocument.objects.filter(
+            doc_type='deal',
+            pinecone_id__in=deal_ids
+        ).delete()
+        
+        logger.info(f"Successfully removed {len(deal_ids)} deals from Pinecone (docs deleted: {deleted_count})")
+        return {"success": True, "count": len(deal_ids)}
+    except Exception as e:
+        logger.error(f"Failed to remove deals: {e}")
+        return {"success": False, "error": str(e)}

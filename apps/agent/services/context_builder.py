@@ -82,13 +82,14 @@ class ContextBuilder:
                 customer=customer,
                 booking_datetime__gte=timezone.now(),
                 status__in=['pending', 'confirmed']
-            ).select_related('shop', 'service').order_by('booking_datetime')[:5]
+            ).select_related('shop', 'service', 'deal').order_by('booking_datetime')[:5]
             
             context['upcoming_bookings'] = [
                 {
                     "id": str(b.id),
                     "shop": b.shop.name,
-                    "service": b.service.name,
+                    "item_name": b.service.name if b.service else (b.deal.name if b.deal else "Appointment"),
+                    "is_deal_booking": b.is_deal_booking,
                     "datetime": b.booking_datetime.isoformat(),
                     "status": b.status
                 }
@@ -99,12 +100,13 @@ class ContextBuilder:
             recent = Booking.objects.filter(
                 customer=customer,
                 status='completed'
-            ).select_related('shop', 'service').order_by('-booking_datetime')[:3]
+            ).select_related('shop', 'service', 'deal').order_by('-booking_datetime')[:3]
             
             context['recent_bookings'] = [
                 {
                     "shop": b.shop.name,
-                    "service": b.service.name,
+                    "item_name": b.service.name if b.service else (b.deal.name if b.deal else "Appointment"),
+                    "is_deal_booking": b.is_deal_booking,
                     "date": b.booking_datetime.date().isoformat()
                 }
                 for b in recent
@@ -151,13 +153,14 @@ class ContextBuilder:
                 today_bookings = Booking.objects.filter(
                     shop=shop,
                     booking_datetime__date=today
-                ).select_related('customer__user', 'service', 'staff_member').order_by('booking_datetime')
+                ).select_related('customer__user', 'service', 'deal', 'staff_member').order_by('booking_datetime')
                 
                 context['today_bookings'] = [
                     {
                         "id": str(b.id),
                         "customer": b.customer.user.full_name,
-                        "service": b.service.name,
+                        "item_name": b.service.name if b.service else (b.deal.name if b.deal else "Appointment"),
+                        "is_deal_booking": b.is_deal_booking,
                         "time": b.booking_datetime.strftime("%I:%M %p"),
                         "staff": b.staff_member.name if b.staff_member else "Unassigned",
                         "status": b.status
@@ -214,13 +217,14 @@ class ContextBuilder:
             today_bookings = Booking.objects.filter(
                 staff_member=staff,
                 booking_datetime__date=today
-            ).select_related('customer__user', 'service').order_by('booking_datetime')
+            ).select_related('customer__user', 'service', 'deal').order_by('booking_datetime')
             
             context['today_bookings'] = [
                 {
                     "id": str(b.id),
                     "customer": b.customer.user.full_name,
-                    "service": b.service.name,
+                    "item_name": b.service.name if b.service else (b.deal.name if b.deal else "Appointment"),
+                    "is_deal_booking": b.is_deal_booking,
                     "time": b.booking_datetime.strftime("%I:%M %p"),
                     "status": b.status
                 }

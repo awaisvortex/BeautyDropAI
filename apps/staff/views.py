@@ -270,10 +270,14 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
             # Get booking details for error message
             booking_details = []
             for booking in active_bookings[:5]:  # Show first 5
+                # Handle both service and deal bookings
+                item_name = (booking.service.name if booking.service 
+                            else (booking.deal.name if booking.deal else "Appointment"))
                 booking_details.append({
                     'id': str(booking.id),
                     'datetime': booking.booking_datetime.isoformat(),
-                    'service': booking.service.name,
+                    'item_name': item_name,
+                    'is_deal_booking': booking.is_deal_booking,
                     'customer': booking.customer.user.full_name if booking.customer else 'Unknown'
                 })
             

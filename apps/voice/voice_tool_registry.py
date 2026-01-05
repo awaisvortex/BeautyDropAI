@@ -46,6 +46,11 @@ from apps.agent.tools.staff_tools import (
     GetMyServicesTool,
     GetTodaySummaryTool,
 )
+from apps.agent.tools.deal_tools import (
+    GetShopDealsTool,
+    GetDealSlotsTool,
+    CreateDealBookingTool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -266,6 +271,11 @@ _TOOL_INSTANCES = {
     # Voice-specific tools
     'route_to_shop': RouteToShopTool(),
     'route_to_master': RouteToMasterTool(),
+    
+    # Deal tools
+    'get_shop_deals': GetShopDealsTool(),
+    'get_deal_slots': GetDealSlotsTool(),
+    'create_deal_booking': CreateDealBookingTool(),
 }
 
 
@@ -289,6 +299,7 @@ MASTER_AGENT_TOOL_NAMES = [
     'search_shops',
     'get_shop_info',
     'get_shop_services',
+    'get_shop_deals',  # Added for deals
     'get_shop_staff',
     'get_shop_hours',
     'get_shop_holidays',
@@ -328,11 +339,14 @@ def execute_master_tool(tool_name: str, args: Dict, user) -> Dict[str, Any]:
 SHOP_CUSTOMER_TOOLS = [
     'get_shop_info',
     'get_shop_services',
+    'get_shop_deals',  # Added for deals
     'get_shop_staff',
     'get_shop_hours',
     'get_shop_holidays',
     'get_available_slots',
+    'get_deal_slots',  # Added for deals
     'create_booking',
+    'create_deal_booking',  # Added for deals
     'get_my_bookings',
     'cancel_booking',
     'reschedule_my_booking',
@@ -343,9 +357,11 @@ SHOP_CLIENT_TOOLS = [
     # Read
     'get_shop_info',
     'get_shop_services',
+    'get_shop_deals',  # Added for deals
     'get_shop_hours',
     'get_shop_holidays',
     'get_available_slots',
+    'get_deal_slots',  # Added for deals
     'get_my_shops',
     'get_my_staff',
     'get_shop_staff',
@@ -372,6 +388,7 @@ SHOP_CLIENT_TOOLS = [
 SHOP_STAFF_TOOLS = [
     'get_shop_info',
     'get_shop_services',
+    'get_shop_deals',  # Added for deals
     'get_shop_hours',
     'get_my_schedule',
     'get_my_bookings',
@@ -437,7 +454,7 @@ def execute_shop_tool(
     
     # Inject shop_id for tools that need it
     shop_tools = [
-        'get_shop_info', 'get_shop_services', 'get_shop_staff',
+        'get_shop_info', 'get_shop_services', 'get_shop_deals', 'get_shop_staff',
         'get_shop_hours', 'get_shop_holidays', 'get_available_slots',
         'get_shop_bookings', 'create_holiday', 'delete_holiday',
         'create_service', 'update_service', 'create_staff', 'update_staff',

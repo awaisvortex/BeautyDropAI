@@ -262,11 +262,20 @@ class FCMService:
         Returns:
             True if at least one notification was sent
         """
+        # Handle both service and deal bookings
+        if booking.service:
+            item_name = booking.service.name
+        elif booking.deal:
+            item_name = booking.deal.name
+        else:
+            item_name = "Appointment"
+        
         data = {
             'type': notification_type,
             'booking_id': str(booking.id),
             'shop_id': str(booking.shop.id),
-            'service_name': booking.service.name,
+            'item_name': item_name,
+            'is_deal_booking': str(booking.is_deal_booking).lower(),
         }
         
         sent = cls.send_to_user(
