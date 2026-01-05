@@ -21,7 +21,10 @@ from .serializers import (
     OwnerRescheduleSerializer,
     StaffReassignSerializer,
     StaffReassignResponseSerializer,
-    OwnerRescheduleResponseSerializer
+    OwnerRescheduleResponseSerializer,
+    DealSlotSerializer,
+    DealAvailabilitySerializer,
+    DealBookingCreateSerializer
 )
 
 
@@ -825,10 +828,278 @@ class BookingViewSet(viewsets.GenericViewSet,
     
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['my_bookings', 'dynamic_book']:
+        if self.action in ['my_bookings', 'dynamic_book', 'deal_slots', 'dynamic_book_deal']:
             return [IsCustomer()]
         elif self.action in ['shop_bookings', 'today_bookings', 'upcoming_bookings', 'confirm', 'complete', 'no_show', 'stats', 'reschedule', 'reassign_staff']:
             return [IsClient()]
         elif self.action == 'cancel':
             return [IsAuthenticated(), IsBookingOwner()]
         return super().get_permissions()
+    
+    # ============================================
+    # Deal Booking Endpoints
+    # ============================================
+    
+    @extend_schema(
+        summary="Get deal availability slots",
+        description="""
+        Get available time slots for a deal booking.
+        
+        Deal slots are based on shop hours with capacity limits.
+        Each slot shows `slots_left` (out of max_concurrent_deal_bookings).
+        
+        **Key differences from service availability:**
+        - No staff required (just shop hours + capacity)
+        - `slots_left` shows remaining capacity at each time
+        """,
+        parameters=[
+            OpenApiParameter('deal_id', str, required=True, description='UUID of the deal'),
+            OpenApiParameter('date', str, required=True, description='Date (YYYY-MM-DD)'),
+        ],
+        responses={
+            200: DealAvailabilitySerializer,
+            400: OpenApiResponse(description="Bad Request - Invalid deal or date"),
+            404: OpenApiResponse(description="Deal not found")
+        },
+        tags=['Deals - Booking']
+    )
+    @action(detail=False, methods=['get'], permission_classes=[IsCustomer])
+    def deal_slots(self, request):
+        """Get available slots for deal booking with capacity info."""
+        from apps.services.models import Deal
+        from apps.schedules.models import ShopSchedule
+        from datetime import datetime, timedelta, time as dt_time
+        import pytz
+        
+        deal_id = request.query_params.get('deal_id')
+        date_str = request.query_params.get('date')
+        
+        if not deal_id or not date_str:
+            return Response(
+                {'error': 'deal_id and date are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parse date
+        try:
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'error': 'Invalid date format. Use YYYY-MM-DD'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get deal
+        try:
+            deal = Deal.objects.select_related('shop').get(id=deal_id, is_active=True)
+        except Deal.DoesNotExist:
+            return Response(
+                {'error': 'Deal not found or not active'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        shop = deal.shop
+        max_concurrent = shop.max_concurrent_deal_bookings
+        
+        # Get shop's timezone
+        try:
+            shop_tz = pytz.timezone(shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
+        
+        # Get schedule for this day
+        day_name = target_date.strftime('%A').lower()
+        try:
+            schedule = ShopSchedule.objects.get(shop=shop, day_of_week=day_name)
+        except ShopSchedule.DoesNotExist:
+            return Response({
+                'deal_id': str(deal.id),
+                'deal_name': deal.name,
+                'deal_duration_minutes': deal.duration_minutes,
+                'date': date_str,
+                'shop_open': None,
+                'shop_close': None,
+                'max_concurrent': max_concurrent,
+                'slots': [],
+                'message': 'Shop has no schedule for this day'
+            })
+        
+        if schedule.is_closed or not schedule.start_time or not schedule.end_time:
+            return Response({
+                'deal_id': str(deal.id),
+                'deal_name': deal.name,
+                'deal_duration_minutes': deal.duration_minutes,
+                'date': date_str,
+                'shop_open': None,
+                'shop_close': None,
+                'max_concurrent': max_concurrent,
+                'slots': [],
+                'message': 'Shop is closed on this day'
+            })
+        
+        # Generate slots based on shop hours and deal duration
+        slot_duration = deal.duration_minutes
+        slots = []
+        
+        # Get existing deal bookings for this date and shop
+        existing_bookings = Booking.objects.filter(
+            shop=shop,
+            deal__isnull=False,
+            booking_datetime__date=target_date,
+            status__in=['pending', 'confirmed']
+        )
+        
+        current_time = datetime.combine(target_date, schedule.start_time)
+        end_time = datetime.combine(target_date, schedule.end_time)
+        
+        # Localize times to shop timezone
+        current_time = shop_tz.localize(current_time)
+        end_time = shop_tz.localize(end_time)
+        
+        now = timezone.now()
+        buffer_time = now + timedelta(minutes=15)
+        
+        while current_time + timedelta(minutes=slot_duration) <= end_time:
+            slot_end = current_time + timedelta(minutes=slot_duration)
+            
+            # Skip past slots
+            if current_time < buffer_time:
+                current_time = current_time + timedelta(minutes=30)  # 30-min slot intervals
+                continue
+            
+            # Count overlapping bookings at this time
+            overlapping = 0
+            for booking in existing_bookings:
+                booking_end = booking.booking_datetime + timedelta(minutes=booking.duration_minutes)
+                # Check overlap
+                if booking.booking_datetime < slot_end and booking_end > current_time:
+                    overlapping += 1
+            
+            slots_left = max(0, max_concurrent - overlapping)
+            
+            slots.append({
+                'start_time': current_time,
+                'end_time': slot_end,
+                'slots_left': slots_left,
+                'is_available': slots_left > 0
+            })
+            
+            current_time = current_time + timedelta(minutes=30)  # 30-min slot intervals
+        
+        return Response({
+            'deal_id': str(deal.id),
+            'deal_name': deal.name,
+            'deal_duration_minutes': deal.duration_minutes,
+            'date': date_str,
+            'shop_open': schedule.start_time.strftime('%H:%M'),
+            'shop_close': schedule.end_time.strftime('%H:%M'),
+            'max_concurrent': max_concurrent,
+            'slots': slots
+        })
+    
+    @extend_schema(
+        summary="Book a deal (no staff required)",
+        description="""
+        Create a booking for a deal/package.
+        
+        **Key differences from service booking:**
+        - No staff member is assigned
+        - Based on shop capacity (max_concurrent_deal_bookings)
+        - Duration is from deal.duration_minutes
+        """,
+        request=DealBookingCreateSerializer,
+        examples=[
+            OpenApiExample(
+                'Book a Deal',
+                value={
+                    'deal_id': 'd241ec69-f739-4040-94a0-b46286742dbe',
+                    'date': '2026-01-10',
+                    'start_time': '10:00',
+                    'notes': 'Looking forward to the deal!'
+                },
+                request_only=True
+            )
+        ],
+        responses={
+            201: BookingSerializer,
+            400: OpenApiResponse(description="Bad Request - Slot not available or capacity full"),
+            403: OpenApiResponse(description="Forbidden - Only customers can create bookings")
+        },
+        tags=['Deals - Booking']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[IsCustomer])
+    def dynamic_book_deal(self, request):
+        """Create a booking for a deal (no staff required)."""
+        if request.user.role != 'customer':
+            return Response(
+                {'error': 'Only customers can create bookings'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        from apps.customers.models import Customer
+        from datetime import timedelta
+        import pytz
+        
+        customer, created = Customer.objects.get_or_create(user=request.user)
+        
+        serializer = DealBookingCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        deal = serializer.validated_data['deal']
+        booking_datetime = serializer.validated_data['booking_datetime']
+        duration_minutes = serializer.validated_data['duration_minutes']
+        
+        shop = deal.shop
+        max_concurrent = shop.max_concurrent_deal_bookings
+        
+        # Get shop's timezone
+        try:
+            shop_tz = pytz.timezone(shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
+        
+        # Check capacity at this time
+        slot_end = booking_datetime + timedelta(minutes=duration_minutes)
+        
+        existing_bookings = Booking.objects.filter(
+            shop=shop,
+            deal__isnull=False,
+            status__in=['pending', 'confirmed'],
+            booking_datetime__date=booking_datetime.date()
+        )
+        
+        overlapping = 0
+        for booking in existing_bookings:
+            booking_end = booking.booking_datetime + timedelta(minutes=booking.duration_minutes)
+            if booking.booking_datetime < slot_end and booking_end > booking_datetime:
+                overlapping += 1
+        
+        if overlapping >= max_concurrent:
+            return Response(
+                {
+                    'error': 'No slots available at this time. Maximum capacity reached.',
+                    'slots_left': 0,
+                    'max_concurrent': max_concurrent
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create booking (no staff, no time_slot)
+        booking = Booking.objects.create(
+            customer=customer,
+            shop=shop,
+            service=None,  # No service for deal booking
+            deal=deal,
+            time_slot=None,
+            staff_member=None,  # No staff for deal booking
+            booking_datetime=booking_datetime,
+            duration_minutes=duration_minutes,
+            total_price=deal.price,
+            notes=serializer.validated_data.get('notes', ''),
+            status='pending'
+        )
+        
+        return Response(
+            BookingSerializer(booking).data,
+            status=status.HTTP_201_CREATED
+        )

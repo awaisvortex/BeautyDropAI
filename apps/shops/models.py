@@ -52,6 +52,12 @@ class Shop(BaseModel):
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.0)
     total_reviews = models.IntegerField(default=0)
     
+    # Deal booking capacity (max concurrent deals at same time)
+    max_concurrent_deal_bookings = models.PositiveIntegerField(
+        default=3,
+        help_text='Maximum number of deal bookings that can happen at the same time slot'
+    )
+    
     class Meta:
         db_table = 'shops'
         verbose_name = 'Shop'

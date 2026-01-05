@@ -8,7 +8,11 @@ from apps.core.utils.constants import BOOKING_STATUSES, BOOKING_STATUS_PENDING
 
 class Booking(BaseModel):
     """
-    Booking model for appointments
+    Booking model for appointments.
+    
+    A booking is either for a SERVICE or a DEAL (mutually exclusive).
+    - Service bookings require staff assignment
+    - Deal bookings do NOT require staff (just time slot based on shop capacity)
     """
     customer = models.ForeignKey(
         'customers.Customer',
@@ -28,7 +32,16 @@ class Booking(BaseModel):
         null=True,
         blank=True,
         related_name='bookings',
-        help_text='Service booked (NULL if service was deleted)'
+        help_text='Service booked (NULL for deal bookings or if service was deleted)'
+    )
+    
+    deal = models.ForeignKey(
+        'services.Deal',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bookings',
+        help_text='Deal/package booked (NULL for service bookings)'
     )
     
     time_slot = models.OneToOneField(
@@ -46,11 +59,15 @@ class Booking(BaseModel):
         null=True,
         blank=True,
         related_name='bookings',
-        help_text='Staff member assigned to this booking'
+        help_text='Staff member assigned to this booking (NULL for deal bookings)'
     )
     
     # Booking details
     booking_datetime = models.DateTimeField(db_index=True)
+    duration_minutes = models.PositiveIntegerField(
+        default=30,
+        help_text='Duration of the booking in minutes (from service or deal duration)'
+    )
     status = models.CharField(
         max_length=20,
         choices=BOOKING_STATUSES,
@@ -86,7 +103,14 @@ class Booking(BaseModel):
         indexes = [
             models.Index(fields=['customer', 'status']),
             models.Index(fields=['shop', 'booking_datetime']),
+            models.Index(fields=['deal', 'booking_datetime']),
         ]
     
     def __str__(self):
-        return f"{self.customer.user.full_name} - {self.service.name} - {self.booking_datetime}"
+        item_name = self.service.name if self.service else (self.deal.name if self.deal else 'Unknown')
+        return f"{self.customer.user.full_name} - {item_name} - {self.booking_datetime}"
+    
+    @property
+    def is_deal_booking(self):
+        """Returns True if this is a deal booking, False if service booking."""
+        return self.deal is not None

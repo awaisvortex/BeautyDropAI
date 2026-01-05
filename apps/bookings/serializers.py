@@ -7,31 +7,46 @@ from django.utils import timezone
 
 
 class BookingSerializer(serializers.ModelSerializer):
-    """Detailed booking serializer for output"""
+    """Detailed booking serializer for output - supports both service and deal bookings"""
     customer_name = serializers.CharField(source='customer.user.full_name', read_only=True)
     customer_email = serializers.EmailField(source='customer.user.email', read_only=True)
     shop_name = serializers.CharField(source='shop.name', read_only=True)
-    service_name = serializers.CharField(source='service.name', read_only=True)
+    # Service fields (null for deal bookings)
+    service_name = serializers.CharField(source='service.name', read_only=True, allow_null=True)
     service_price = serializers.DecimalField(
         source='service.price',
         max_digits=10,
         decimal_places=2,
-        read_only=True
+        read_only=True,
+        allow_null=True
     )
-    service_duration = serializers.IntegerField(
-        source='service.duration_minutes',
-        read_only=True
+    # Deal fields (null for service bookings)
+    deal_name = serializers.CharField(source='deal.name', read_only=True, allow_null=True)
+    deal_price = serializers.DecimalField(
+        source='deal.price',
+        max_digits=10,
+        decimal_places=2,
+        read_only=True,
+        allow_null=True
     )
+    deal_items = serializers.JSONField(source='deal.included_items', read_only=True, default=list)
+    # Common fields
     staff_member_name = serializers.CharField(source='staff_member.name', read_only=True, allow_null=True)
+    is_deal_booking = serializers.BooleanField(read_only=True)
     
     class Meta:
         model = Booking
         fields = [
             'id', 'customer', 'customer_name', 'customer_email',
-            'shop', 'shop_name', 'service', 'service_name',
-            'service_price', 'service_duration', 'time_slot',
-            'staff_member', 'staff_member_name',
-            'booking_datetime', 'status', 'total_price', 'notes',
+            'shop', 'shop_name', 
+            # Service booking fields
+            'service', 'service_name', 'service_price',
+            # Deal booking fields
+            'deal', 'deal_name', 'deal_price', 'deal_items',
+            # Common fields
+            'time_slot', 'staff_member', 'staff_member_name',
+            'booking_datetime', 'duration_minutes', 'status', 
+            'total_price', 'notes', 'is_deal_booking',
             'cancellation_reason', 'cancelled_at',
             'created_at', 'updated_at'
         ]
@@ -350,3 +365,93 @@ class DynamicBookingCreateSerializer(serializers.Serializer):
         data['service'] = service
         return data
 
+
+# ============================================
+# Deal Booking Serializers
+# ============================================
+
+class DealSlotSerializer(serializers.Serializer):
+    """Output serializer for deal availability slots with capacity info."""
+    start_time = serializers.DateTimeField(help_text="Slot start time")
+    end_time = serializers.DateTimeField(help_text="Slot end time")
+    slots_left = serializers.IntegerField(help_text="Number of available slots (out of max concurrent)")
+    is_available = serializers.BooleanField(help_text="True if at least 1 slot is available")
+
+
+class DealAvailabilitySerializer(serializers.Serializer):
+    """Output serializer for deal availability check."""
+    deal_id = serializers.UUIDField()
+    deal_name = serializers.CharField()
+    deal_duration_minutes = serializers.IntegerField()
+    date = serializers.DateField()
+    shop_open = serializers.TimeField(allow_null=True)
+    shop_close = serializers.TimeField(allow_null=True)
+    max_concurrent = serializers.IntegerField(help_text="Max concurrent deal bookings for shop")
+    slots = DealSlotSerializer(many=True)
+
+
+class DealBookingCreateSerializer(serializers.Serializer):
+    """
+    Input serializer for creating deal bookings.
+    
+    Deal bookings don't require staff - just based on shop hours and capacity.
+    """
+    deal_id = serializers.UUIDField(
+        help_text="UUID of the deal to book"
+    )
+    date = serializers.DateField(
+        help_text="Date of the booking (YYYY-MM-DD)"
+    )
+    start_time = serializers.TimeField(
+        help_text="Start time for the booking (HH:MM)"
+    )
+    notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text="Optional notes for the booking"
+    )
+    
+    def validate_date(self, value):
+        """Ensure date is not in the past."""
+        if value < timezone.now().date():
+            raise serializers.ValidationError("Date cannot be in the past")
+        return value
+    
+    def validate_deal_id(self, value):
+        """Validate deal exists and is active."""
+        from apps.services.models import Deal
+        try:
+            Deal.objects.get(id=value, is_active=True)
+        except Deal.DoesNotExist:
+            raise serializers.ValidationError("Deal not found or not active")
+        return value
+    
+    def validate(self, data):
+        from apps.services.models import Deal
+        from datetime import datetime, timedelta
+        import pytz
+        
+        deal = Deal.objects.select_related('shop').get(id=data['deal_id'])
+        
+        # Get shop's timezone
+        try:
+            shop_tz = pytz.timezone(deal.shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
+        
+        # Create datetime from date and time, localized to shop's timezone
+        naive_datetime = datetime.combine(data['date'], data['start_time'])
+        booking_datetime = shop_tz.localize(naive_datetime)
+        
+        # Check if booking time is in the past
+        buffer_time = timezone.now() + timedelta(minutes=15)
+        if booking_datetime < buffer_time:
+            raise serializers.ValidationError(
+                "Booking time must be at least 15 minutes from now"
+            )
+        
+        data['booking_datetime'] = booking_datetime
+        data['deal'] = deal
+        data['duration_minutes'] = deal.duration_minutes
+        return data
