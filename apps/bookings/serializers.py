@@ -112,19 +112,36 @@ class BookingCreateSerializer(serializers.Serializer):
 
 
 class BookingListSerializer(serializers.ModelSerializer):
-    """Simplified booking serializer for lists"""
+    """Simplified booking serializer for lists - supports both service and deal bookings"""
     customer_name = serializers.CharField(source='customer.user.full_name', read_only=True)
     shop_name = serializers.CharField(source='shop.name', read_only=True)
-    service_name = serializers.CharField(source='service.name', read_only=True)
+    # Service booking
+    service_name = serializers.CharField(source='service.name', read_only=True, allow_null=True)
+    # Deal booking
+    deal_name = serializers.CharField(source='deal.name', read_only=True, allow_null=True)
+    is_deal_booking = serializers.BooleanField(read_only=True)
+    # Common
     staff_member_name = serializers.CharField(source='staff_member.name', read_only=True, allow_null=True)
+    
+    # Computed field for display name (service or deal)
+    item_name = serializers.SerializerMethodField()
     
     class Meta:
         model = Booking
         fields = [
-            'id', 'customer_name', 'shop_name', 'service_name',
-            'staff_member_name', 'booking_datetime', 'status',
-            'total_price', 'created_at'
+            'id', 'customer_name', 'shop_name', 
+            'service_name', 'deal_name', 'item_name', 'is_deal_booking',
+            'staff_member_name', 'booking_datetime', 'duration_minutes',
+            'status', 'total_price', 'created_at'
         ]
+    
+    def get_item_name(self, obj):
+        """Return the display name (service name or deal name)"""
+        if obj.service:
+            return obj.service.name
+        elif obj.deal:
+            return obj.deal.name
+        return 'Unknown'
 
 
 class BookingUpdateStatusSerializer(serializers.Serializer):

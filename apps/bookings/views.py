@@ -62,7 +62,7 @@ class BookingViewSet(viewsets.GenericViewSet,
             return Booking.objects.none()
         
         queryset = Booking.objects.select_related(
-            'customer__user', 'shop__client__user', 'service', 'time_slot', 'staff_member'
+            'customer__user', 'shop__client__user', 'service', 'deal', 'time_slot', 'staff_member'
         )
         
         # Customers see their own bookings
@@ -600,10 +600,79 @@ class BookingViewSet(viewsets.GenericViewSet,
         new_date = serializer.validated_data['date']
         new_time = serializer.validated_data['start_time']
         
-        # Use AvailabilityService to validate the new slot
-        from apps.schedules.services.availability import AvailabilityService
         from datetime import datetime, timedelta
         import pytz
+        
+        # Get shop's timezone
+        try:
+            shop_tz = pytz.timezone(booking.shop.timezone)
+        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+            shop_tz = pytz.UTC
+        
+        # Create new booking datetime
+        naive_datetime = datetime.combine(new_date, new_time)
+        new_booking_datetime = shop_tz.localize(naive_datetime)
+        
+        # DEAL BOOKING - simpler capacity-based validation
+        if booking.is_deal_booking:
+            from apps.schedules.models import ShopSchedule
+            
+            # Check shop is open
+            day_name = new_date.strftime('%A').lower()
+            try:
+                schedule = ShopSchedule.objects.get(shop=booking.shop, day_of_week=day_name)
+            except ShopSchedule.DoesNotExist:
+                return Response(
+                    {'error': 'Shop has no schedule for this day'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if schedule.is_closed:
+                return Response(
+                    {'error': 'Shop is closed on this day'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check time is within shop hours
+            shop_open = shop_tz.localize(datetime.combine(new_date, schedule.start_time))
+            shop_close = shop_tz.localize(datetime.combine(new_date, schedule.end_time))
+            slot_end = new_booking_datetime + timedelta(minutes=booking.duration_minutes)
+            
+            if new_booking_datetime < shop_open or slot_end > shop_close:
+                return Response(
+                    {'error': 'Time is outside shop hours'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check capacity at new time (exclude current booking)
+            max_concurrent = booking.shop.max_concurrent_deal_bookings
+            existing_bookings = Booking.objects.filter(
+                shop=booking.shop,
+                deal__isnull=False,
+                status__in=['pending', 'confirmed'],
+                booking_datetime__date=new_date
+            ).exclude(id=booking.id)
+            
+            overlapping = 0
+            for existing in existing_bookings:
+                existing_end = existing.booking_datetime + timedelta(minutes=existing.duration_minutes)
+                if existing.booking_datetime < slot_end and existing_end > new_booking_datetime:
+                    overlapping += 1
+            
+            if overlapping >= max_concurrent:
+                return Response(
+                    {'error': 'Maximum capacity reached at this time', 'slots_left': 0},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update booking datetime (no staff for deals)
+            booking.booking_datetime = new_booking_datetime
+            booking.save(update_fields=['booking_datetime'])
+            
+            return Response(BookingSerializer(booking).data)
+        
+        # SERVICE BOOKING - use AvailabilityService
+        from apps.schedules.services.availability import AvailabilityService
         
         availability_service = AvailabilityService(
             service_id=booking.service.id,
@@ -617,16 +686,6 @@ class BookingViewSet(viewsets.GenericViewSet,
                 {'error': 'Shop is closed on this date'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Get shop's timezone
-        try:
-            shop_tz = pytz.timezone(booking.shop.timezone)
-        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
-            shop_tz = pytz.UTC
-        
-        # Create new booking datetime
-        naive_datetime = datetime.combine(new_date, new_time)
-        new_booking_datetime = shop_tz.localize(naive_datetime)
         
         # Get available slots
         available_slots = availability_service.get_available_slots()
@@ -656,9 +715,8 @@ class BookingViewSet(viewsets.GenericViewSet,
         
         # If current staff is not available at new time, reassign
         if booking.staff_member_id and booking.staff_member_id not in matching_slot.available_staff_ids:
-            from apps.staff.models import StaffMember
+            from apps.staff.models import StaffMember, StaffService
             # Try to use primary staff for service
-            from apps.staff.models import StaffService
             primary = StaffService.objects.filter(
                 service=booking.service,
                 is_primary=True,
@@ -727,6 +785,13 @@ class BookingViewSet(viewsets.GenericViewSet,
             return Response(
                 {'error': 'You do not own this shop'},
                 status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Deal bookings don't have staff
+        if booking.is_deal_booking:
+            return Response(
+                {'error': 'Deal bookings do not have staff assignments'},
+                status=status.HTTP_400_BAD_REQUEST
             )
         
         # Cannot reassign completed/cancelled bookings
