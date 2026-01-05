@@ -114,3 +114,17 @@ WEBHOOK_SOURCES = [
     (WEBHOOK_SOURCE_CLERK, 'Clerk'),
 ]
 
+# Booking payment statuses (for advance deposits)
+BOOKING_PAYMENT_NOT_REQUIRED = 'not_required'
+BOOKING_PAYMENT_PENDING = 'pending'
+BOOKING_PAYMENT_PAID = 'paid'
+BOOKING_PAYMENT_REFUNDED = 'refunded'
+BOOKING_PAYMENT_FAILED = 'failed'
+
+BOOKING_PAYMENT_STATUSES = [
+    (BOOKING_PAYMENT_NOT_REQUIRED, 'Not Required'),
+    (BOOKING_PAYMENT_PENDING, 'Payment Pending'),
+    (BOOKING_PAYMENT_PAID, 'Deposit Paid'),
+    (BOOKING_PAYMENT_REFUNDED, 'Refunded'),
+    (BOOKING_PAYMENT_FAILED, 'Payment Failed'),
+]

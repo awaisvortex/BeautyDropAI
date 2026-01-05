@@ -25,7 +25,10 @@ def stripe_webhook(request):
     Handle incoming Stripe webhooks.
     
     Verifies webhook signature and processes the event.
+    Tries both regular and Connect webhook secrets.
     """
+    from django.conf import settings
+    
     payload = request.body
     sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
     
@@ -33,17 +36,33 @@ def stripe_webhook(request):
         logger.warning("Missing Stripe signature header")
         return HttpResponse("Missing signature", status=400)
     
+    event = None
+    
+    # Try regular webhook secret first
+    secrets_to_try = [
+        settings.STRIPE_WEBHOOK_SECRET,
+        getattr(settings, 'STRIPE_CONNECT_WEBHOOK_SECRET', ''),
+    ]
+    
+    for secret in secrets_to_try:
+        if not secret:
+            continue
+        try:
+            event = StripeClient.verify_webhook_signature(
+                payload=payload,
+                signature=sig_header,
+                webhook_secret=secret
+            )
+            logger.info(f"Webhook verified with secret: {secret[:15]}...")
+            break
+        except Exception:
+            continue
+    
+    if not event:
+        logger.warning("Invalid Stripe webhook signature - tried all secrets")
+        return HttpResponse("Invalid signature", status=400)
+    
     try:
-        # Verify webhook signature
-        event = StripeClient.verify_webhook_signature(
-            payload=payload,
-            signature=sig_header
-        )
-        
-        if not event:
-            logger.warning("Invalid Stripe webhook signature")
-            return HttpResponse("Invalid signature", status=400)
-        
         # Process the event
         success = process_stripe_webhook(event)
         

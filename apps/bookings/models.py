@@ -3,7 +3,10 @@ Booking model
 """
 from django.db import models
 from apps.core.models import BaseModel
-from apps.core.utils.constants import BOOKING_STATUSES, BOOKING_STATUS_PENDING
+from apps.core.utils.constants import (
+    BOOKING_STATUSES, BOOKING_STATUS_PENDING,
+    BOOKING_PAYMENT_STATUSES, BOOKING_PAYMENT_PENDING
+)
 
 
 class Booking(BaseModel):
@@ -93,6 +96,15 @@ class Booking(BaseModel):
         blank=True,
         null=True,
         help_text='Who cancelled the booking'
+    )
+    
+    # Payment tracking
+    payment_status = models.CharField(
+        max_length=20,
+        choices=BOOKING_PAYMENT_STATUSES,
+        default=BOOKING_PAYMENT_PENDING,
+        db_index=True,
+        help_text='Status of advance payment (pending = awaiting payment)'
     )
     
     class Meta:

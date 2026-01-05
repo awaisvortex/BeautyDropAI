@@ -295,13 +295,35 @@ class BookingViewSet(viewsets.GenericViewSet,
             time_slot=None,  # Dynamic booking - no TimeSlot
             staff_member=staff_member,
             booking_datetime=booking_datetime,
+            duration_minutes=service.duration_minutes,
             total_price=service.price,
             notes=serializer.validated_data.get('notes', ''),
             status='pending'
         )
         
+        # Create advance payment if required
+        from apps.payments.booking_payment_service import booking_payment_service
+        payment_result = booking_payment_service.create_advance_payment(booking)
+        
+        # Build response
+        response_data = BookingSerializer(booking).data
+        
+        # Add payment info to response
+        if payment_result.get('payment_required'):
+            response_data['payment'] = {
+                'required': True,
+                'client_secret': payment_result['client_secret'],
+                'amount': float(payment_result['amount']),
+                'currency': payment_result['currency'],
+            }
+        else:
+            response_data['payment'] = {
+                'required': False,
+                'message': payment_result.get('message', 'No payment required'),
+            }
+        
         return Response(
-            BookingSerializer(booking).data,
+            response_data,
             status=status.HTTP_201_CREATED
         )
     

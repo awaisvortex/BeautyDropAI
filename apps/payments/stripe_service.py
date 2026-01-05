@@ -239,6 +239,9 @@ class StripeClient:
         if not webhook_secret:
             webhook_secret = settings.STRIPE_WEBHOOK_SECRET
         
+        logger.info(f"Webhook secret being used: {webhook_secret[:20]}...")
+        logger.info(f"Signature header: {signature[:50]}...")
+        
         event = stripe.Webhook.construct_event(
             payload, signature, webhook_secret
         )
