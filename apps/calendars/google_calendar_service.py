@@ -86,13 +86,24 @@ class GoogleCalendarService:
         try:
             service = self._build_service()
             
-            # Calculate end time based on service duration
+            # Handle both service and deal bookings
+            if booking.service:
+                item_name = booking.service.name
+                duration = booking.service.duration_minutes
+            elif booking.deal:
+                item_name = booking.deal.name
+                duration = booking.duration_minutes
+            else:
+                item_name = "Appointment"
+                duration = booking.duration_minutes
+            
+            # Calculate end time based on duration
             start_time = booking.booking_datetime
-            end_time = start_time + timedelta(minutes=booking.service.duration_minutes)
+            end_time = start_time + timedelta(minutes=duration)
             
             # Build event body
             event = {
-                'summary': f"{booking.service.name} - {booking.shop.name}",
+                'summary': f"{item_name} - {booking.shop.name}",
                 'description': self._build_event_description(booking),
                 'start': {
                     'dateTime': start_time.isoformat(),
@@ -147,12 +158,23 @@ class GoogleCalendarService:
         try:
             service = self._build_service()
             
+            # Handle both service and deal bookings
+            if booking.service:
+                item_name = booking.service.name
+                duration = booking.service.duration_minutes
+            elif booking.deal:
+                item_name = booking.deal.name
+                duration = booking.duration_minutes
+            else:
+                item_name = "Appointment"
+                duration = booking.duration_minutes
+            
             # Calculate end time
             start_time = booking.booking_datetime
-            end_time = start_time + timedelta(minutes=booking.service.duration_minutes)
+            end_time = start_time + timedelta(minutes=duration)
             
             event = {
-                'summary': f"{booking.service.name} - {booking.shop.name}",
+                'summary': f"{item_name} - {booking.shop.name}",
                 'description': self._build_event_description(booking),
                 'start': {
                     'dateTime': start_time.isoformat(),
@@ -215,8 +237,16 @@ class GoogleCalendarService:
         """
         Build a formatted description for the calendar event.
         """
+        # Handle both service and deal bookings
+        if booking.service:
+            item_name = booking.service.name
+        elif booking.deal:
+            item_name = booking.deal.name
+        else:
+            item_name = "Appointment"
+        
         lines = [
-            f"Service: {booking.service.name}",
+            f"{'Deal' if booking.is_deal_booking else 'Service'}: {item_name}",
             f"Shop: {booking.shop.name}",
             f"Price: ${booking.total_price}",
         ]

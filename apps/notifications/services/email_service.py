@@ -560,6 +560,14 @@ class EmailNotificationService:
         for booking in affected_bookings:
             customer_email = get_customer_email(booking)
             if customer_email and customer_email not in notified_emails:
+                # Handle both service and deal bookings
+                if booking.service:
+                    item_name = booking.service.name
+                elif booking.deal:
+                    item_name = booking.deal.name
+                else:
+                    item_name = "Appointment"
+                
                 customer_log = cls.send_email(
                     recipient_email=customer_email,
                     recipient_name=get_customer_name(booking),
@@ -567,7 +575,8 @@ class EmailNotificationService:
                     context={
                         **context,
                         'booking_datetime': booking.booking_datetime,
-                        'service_name': booking.service.name,
+                        'item_name': item_name,
+                        'is_deal_booking': booking.is_deal_booking,
                     },
                     booking=booking,
                     user=get_customer_user(booking)
@@ -589,11 +598,23 @@ class EmailNotificationService:
         Returns:
             Dictionary with booking context
         """
+        # Handle both service and deal bookings
+        if booking.service:
+            item_name = booking.service.name
+            duration = booking.service.duration_minutes
+        elif booking.deal:
+            item_name = booking.deal.name
+            duration = booking.duration_minutes
+        else:
+            item_name = "Appointment"
+            duration = booking.duration_minutes
+        
         return {
             'booking_id': str(booking.id),
             'booking_datetime': booking.booking_datetime,
-            'service_name': booking.service.name,
-            'service_duration': booking.service.duration_minutes,
+            'item_name': item_name,
+            'is_deal_booking': booking.is_deal_booking,
+            'service_duration': duration,
             'service_price': booking.total_price,
             'shop_name': booking.shop.name,
             'shop_address': booking.shop.address,

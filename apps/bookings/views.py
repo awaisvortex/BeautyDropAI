@@ -827,8 +827,15 @@ class BookingViewSet(viewsets.GenericViewSet,
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Check if staff can provide this service
-        if new_staff.services.exists() and not new_staff.services.filter(id=booking.service.id).exists():
+        # Deal bookings don't have staff - reject reassignment
+        if booking.is_deal_booking:
+            return Response(
+                {'error': 'Deal bookings do not have assigned staff members and cannot be reassigned'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if staff can provide this service (only for service bookings)
+        if booking.service and new_staff.services.exists() and not new_staff.services.filter(id=booking.service.id).exists():
             return Response(
                 {
                     'error': 'This staff member cannot provide the booked service',
@@ -841,7 +848,8 @@ class BookingViewSet(viewsets.GenericViewSet,
         
         # Check if new staff is available at this booking time (no clashes)
         from datetime import timedelta
-        booking_end = booking.booking_datetime + timedelta(minutes=booking.service.duration_minutes)
+        duration = booking.service.duration_minutes if booking.service else booking.duration_minutes
+        booking_end = booking.booking_datetime + timedelta(minutes=duration)
         
         conflicting_booking = Booking.objects.filter(
             staff_member=new_staff,
@@ -853,15 +861,17 @@ class BookingViewSet(viewsets.GenericViewSet,
         has_conflict = False
         conflict_details = None
         for existing_booking in conflicting_booking:
-            existing_end = existing_booking.booking_datetime + timedelta(
-                minutes=existing_booking.service.duration_minutes
-            )
+            existing_duration = (existing_booking.service.duration_minutes if existing_booking.service 
+                               else existing_booking.duration_minutes)
+            existing_end = existing_booking.booking_datetime + timedelta(minutes=existing_duration)
             if existing_booking.booking_datetime < booking_end and existing_end > booking.booking_datetime:
                 has_conflict = True
+                existing_item_name = (existing_booking.service.name if existing_booking.service 
+                                     else (existing_booking.deal.name if existing_booking.deal else "Appointment"))
                 conflict_details = {
                     'conflicting_booking_id': str(existing_booking.id),
                     'conflicting_time': existing_booking.booking_datetime.isoformat(),
-                    'conflicting_service': existing_booking.service.name
+                    'conflicting_item': existing_item_name
                 }
                 break
         

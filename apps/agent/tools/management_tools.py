@@ -852,7 +852,7 @@ class RescheduleBookingTool(BaseTool):
         try:
             client = Client.objects.get(user=user)
             
-            booking = Booking.objects.select_related('shop', 'service', 'customer__user').get(
+            booking = Booking.objects.select_related('shop', 'service', 'deal', 'customer__user').get(
                 id=kwargs['booking_id']
             )
             
@@ -871,50 +871,87 @@ class RescheduleBookingTool(BaseTool):
             if new_dt < timezone.now():
                 return {"success": False, "error": "Cannot reschedule to a past time"}
             
-            # Check availability
-            availability_service = AvailabilityService(
-                service_id=booking.service.id,
-                target_date=new_dt.date()
-            )
-            available_slots = availability_service.get_available_slots()
+            # Check availability based on booking type
+            if booking.is_deal_booking:
+                # Deal bookings use capacity-based validation
+                from apps.schedules.models import ShopSchedule
+                from datetime import timedelta
+                import pytz
+                
+                shop = booking.shop
+                max_concurrent = shop.max_concurrent_deal_bookings
+                
+                try:
+                    shop_tz = pytz.timezone(shop.timezone)
+                except:
+                    shop_tz = pytz.UTC
+                
+                # Check capacity at new time
+                slot_end = new_dt + timedelta(minutes=booking.duration_minutes)
+                existing_bookings = Booking.objects.filter(
+                    shop=shop,
+                    deal__isnull=False,
+                    status__in=['pending', 'confirmed'],
+                    booking_datetime__date=new_dt.date()
+                ).exclude(id=booking.id)
+                
+                overlapping = 0
+                for eb in existing_bookings:
+                    eb_end = eb.booking_datetime + timedelta(minutes=eb.duration_minutes)
+                    if eb.booking_datetime < slot_end and eb_end > new_dt:
+                        overlapping += 1
+                
+                if overlapping >= max_concurrent:
+                    return {
+                        "success": False,
+                        "error": f"No capacity available at this time. Maximum {max_concurrent} concurrent deal bookings reached."
+                    }
+            else:
+                # Service bookings use AvailabilityService
+                availability_service = AvailabilityService(
+                    service_id=booking.service.id,
+                    target_date=new_dt.date()
+                )
+                available_slots = availability_service.get_available_slots()
+                
+                slot_time = new_dt.time()
+                slot_available = any(
+                    slot.start_time.time() == slot_time
+                    for slot in available_slots
+                )
+                
+                if not slot_available:
+                    suggestions = [s.start_time.strftime('%I:%M %p') for s in available_slots[:5]]
+                    return {
+                        "success": False,
+                        "error": f"The requested time ({new_dt.strftime('%I:%M %p')}) is not available.",
+                        "available_times": suggestions,
+                        "message": f"Available times on {new_dt.strftime('%B %d')}: {', '.join(suggestions)}"
+                    }
             
-            slot_time = new_dt.time()
-            slot_available = any(
-                slot.start_time.time() == slot_time
-                for slot in available_slots
-            )
-            
-            if not slot_available:
-                suggestions = [s.start_time.strftime('%I:%M %p') for s in available_slots[:5]]
-                return {
-                    "success": False,
-                    "error": f"The requested time ({new_dt.strftime('%I:%M %p')}) is not available.",
-                    "available_times": suggestions,
-                    "message": f"Available times on {new_dt.strftime('%B %d')}: {', '.join(suggestions)}"
-                }
-            
-            # Handle staff change if requested
+            # Handle staff change if requested (only for service bookings)
             old_datetime = booking.booking_datetime
             old_staff = booking.staff_member
             
-            if kwargs.get('new_staff_id'):
-                try:
-                    new_staff = StaffMember.objects.get(
-                        id=kwargs['new_staff_id'], 
-                        shop=booking.shop, 
+            if not booking.is_deal_booking:
+                if kwargs.get('new_staff_id'):
+                    try:
+                        new_staff = StaffMember.objects.get(
+                            id=kwargs['new_staff_id'], 
+                            shop=booking.shop, 
+                            is_active=True
+                        )
+                        booking.staff_member = new_staff
+                    except StaffMember.DoesNotExist:
+                        pass
+                elif kwargs.get('new_staff_name'):
+                    new_staff = StaffMember.objects.filter(
+                        name__icontains=kwargs['new_staff_name'],
+                        shop=booking.shop,
                         is_active=True
-                    )
-                    booking.staff_member = new_staff
-                except StaffMember.DoesNotExist:
-                    pass
-            elif kwargs.get('new_staff_name'):
-                new_staff = StaffMember.objects.filter(
-                    name__icontains=kwargs['new_staff_name'],
-                    shop=booking.shop,
-                    is_active=True
-                ).first()
-                if new_staff:
-                    booking.staff_member = new_staff
+                    ).first()
+                    if new_staff:
+                        booking.staff_member = new_staff
             
             # Update booking
             booking.booking_datetime = new_dt
@@ -922,13 +959,22 @@ class RescheduleBookingTool(BaseTool):
             
             logger.info(f"Rescheduled booking {booking.id} from {old_datetime} to {new_dt}")
             
+            # Get item name (service or deal)
+            if booking.service:
+                item_name = booking.service.name
+            elif booking.deal:
+                item_name = booking.deal.name
+            else:
+                item_name = "appointment"
+            
             return {
                 "success": True,
                 "message": f"Booking rescheduled from {old_datetime.strftime('%B %d at %I:%M %p')} to {new_dt.strftime('%B %d at %I:%M %p')}",
                 "booking": {
                     "booking_id": str(booking.id),
                     "customer": booking.customer.user.full_name,
-                    "service": booking.service.name,
+                    "item_name": item_name,
+                    "is_deal_booking": booking.is_deal_booking,
                     "old_datetime": old_datetime.isoformat(),
                     "new_datetime": new_dt.isoformat(),
                     "formatted_new_datetime": new_dt.strftime("%B %d, %Y at %I:%M %p"),

@@ -102,7 +102,15 @@ def booking_post_save(sender, instance, created, **kwargs):
     from apps.notifications.models import NotificationType
     
     booking_id = str(instance.id)
-    service_name = instance.service.name if instance.service else 'Service'
+    
+    # Handle both service and deal bookings
+    if instance.service:
+        item_name = instance.service.name
+    elif instance.deal:
+        item_name = f"Deal: {instance.deal.name}"
+    else:
+        item_name = 'Appointment'
+    
     shop_name = instance.shop.name if instance.shop else 'Shop'
     parties = get_booking_parties(instance)
     
@@ -120,25 +128,26 @@ def booking_post_save(sender, instance, created, **kwargs):
             send_push_notification(
                 user=parties['customer_user'],
                 title='Booking Confirmed! ✅',
-                body=f'Your {service_name} at {shop_name} has been confirmed.',
+                body=f'Your {item_name} at {shop_name} has been confirmed.',
                 data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CONFIRMATION},
                 notification_type=NotificationType.BOOKING_CONFIRMATION
             )
             
-            # Push to Staff
-            send_push_notification(
-                user=parties['staff_user'],
-                title='New Booking Assigned 📅',
-                body=f'New {service_name} booking at {shop_name}.',
-                data={'booking_id': booking_id, 'type': NotificationType.NEW_BOOKING},
-                notification_type=NotificationType.NEW_BOOKING
-            )
+            # Push to Staff (only for service bookings)
+            if instance.staff_member:
+                send_push_notification(
+                    user=parties['staff_user'],
+                    title='New Booking Assigned 📅',
+                    body=f'New {item_name} booking at {shop_name}.',
+                    data={'booking_id': booking_id, 'type': NotificationType.NEW_BOOKING},
+                    notification_type=NotificationType.NEW_BOOKING
+                )
             
             # Push to Owner
             send_push_notification(
                 user=parties['owner_user'],
                 title='New Booking Received 🎉',
-                body=f'New booking for {service_name}.',
+                body=f'New booking for {item_name}.',
                 data={'booking_id': booking_id, 'type': NotificationType.NEW_BOOKING},
                 notification_type=NotificationType.NEW_BOOKING
             )
@@ -162,21 +171,22 @@ def booking_post_save(sender, instance, created, **kwargs):
         send_push_notification(
             user=parties['customer_user'],
             title='Booking Confirmed! ✅',
-            body=f'Your {service_name} booking at {shop_name} has been confirmed.',
+            body=f'Your {item_name} booking at {shop_name} has been confirmed.',
             data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CONFIRMATION},
             notification_type=NotificationType.BOOKING_CONFIRMATION
         )
-        send_push_notification(
-            user=parties['staff_user'],
-            title='Booking Confirmed',
-            body=f'A {service_name} booking has been confirmed.',
-            data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CONFIRMATION},
-            notification_type=NotificationType.BOOKING_CONFIRMATION
-        )
+        if instance.staff_member:
+            send_push_notification(
+                user=parties['staff_user'],
+                title='Booking Confirmed',
+                body=f'A {item_name} booking has been confirmed.',
+                data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CONFIRMATION},
+                notification_type=NotificationType.BOOKING_CONFIRMATION
+            )
         send_push_notification(
             user=parties['owner_user'],
             title='Booking Confirmed',
-            body=f'A {service_name} booking has been confirmed.',
+            body=f'A {item_name} booking has been confirmed.',
             data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CONFIRMATION},
             notification_type=NotificationType.BOOKING_CONFIRMATION
         )
@@ -196,17 +206,18 @@ def booking_post_save(sender, instance, created, **kwargs):
         # Notify parties based on who cancelled
         if cancelled_by == 'customer':
             # Staff + Owner get notified
-            send_push_notification(
-                user=parties['staff_user'],
-                title='Booking Cancelled ❌',
-                body=f'Customer cancelled their {service_name} booking.',
-                data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CANCELLATION},
-                notification_type=NotificationType.BOOKING_CANCELLATION
-            )
+            if instance.staff_member:
+                send_push_notification(
+                    user=parties['staff_user'],
+                    title='Booking Cancelled ❌',
+                    body=f'Customer cancelled their {item_name} booking.',
+                    data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CANCELLATION},
+                    notification_type=NotificationType.BOOKING_CANCELLATION
+                )
             send_push_notification(
                 user=parties['owner_user'],
                 title='Booking Cancelled',
-                body=f'A {service_name} booking was cancelled by customer.',
+                body=f'A {item_name} booking was cancelled by customer.',
                 data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CANCELLATION},
                 notification_type=NotificationType.BOOKING_CANCELLATION
             )
@@ -216,14 +227,14 @@ def booking_post_save(sender, instance, created, **kwargs):
             send_push_notification(
                 user=parties['customer_user'],
                 title='Booking Cancelled ❌',
-                body=f'Your {service_name} booking has been cancelled.',
+                body=f'Your {item_name} booking has been cancelled.',
                 data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CANCELLATION},
                 notification_type=NotificationType.BOOKING_CANCELLATION
             )
             send_push_notification(
                 user=parties['owner_user'],
                 title='Booking Cancelled by Staff',
-                body=f'A {service_name} booking was cancelled by staff.',
+                body=f'A {item_name} booking was cancelled by staff.',
                 data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CANCELLATION},
                 notification_type=NotificationType.BOOKING_CANCELLATION
             )
@@ -233,17 +244,18 @@ def booking_post_save(sender, instance, created, **kwargs):
             send_push_notification(
                 user=parties['customer_user'],
                 title='Booking Cancelled ❌',
-                body=f'Your {service_name} booking has been cancelled by the shop.',
+                body=f'Your {item_name} booking has been cancelled by the shop.',
                 data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CANCELLATION},
                 notification_type=NotificationType.BOOKING_CANCELLATION
             )
-            send_push_notification(
-                user=parties['staff_user'],
-                title='Booking Cancelled',
-                body=f'A {service_name} booking was cancelled by owner.',
-                data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CANCELLATION},
-                notification_type=NotificationType.BOOKING_CANCELLATION
-            )
+            if instance.staff_member:
+                send_push_notification(
+                    user=parties['staff_user'],
+                    title='Booking Cancelled',
+                    body=f'A {item_name} booking was cancelled by owner.',
+                    data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CANCELLATION},
+                    notification_type=NotificationType.BOOKING_CANCELLATION
+                )
         return
     
     # ----- STAFF MEMBER CHANGE -----
@@ -262,7 +274,7 @@ def booking_post_save(sender, instance, created, **kwargs):
         send_push_notification(
             user=parties['customer_user'],
             title='Staff Member Changed',
-            body=f'Your {service_name} booking has a new staff member.',
+            body=f'Your {item_name} booking has a new staff member.',
             data={'booking_id': booking_id, 'type': NotificationType.STAFF_ASSIGNMENT},
             notification_type=NotificationType.STAFF_ASSIGNMENT
         )
@@ -271,7 +283,7 @@ def booking_post_save(sender, instance, created, **kwargs):
         send_push_notification(
             user=parties['staff_user'],
             title='Booking Assigned to You 📅',
-            body=f'You have been assigned to a {service_name} booking.',
+            body=f'You have been assigned to a {item_name} booking.',
             data={'booking_id': booking_id, 'type': NotificationType.STAFF_ASSIGNMENT},
             notification_type=NotificationType.STAFF_ASSIGNMENT
         )
@@ -285,7 +297,7 @@ def booking_post_save(sender, instance, created, **kwargs):
                     send_push_notification(
                         user=old_staff.user,
                         title='Booking Unassigned',
-                        body=f'You have been unassigned from a {service_name} booking.',
+                        body=f'You have been unassigned from a {item_name} booking.',
                         data={'booking_id': booking_id, 'type': NotificationType.STAFF_ASSIGNMENT},
                         notification_type=NotificationType.STAFF_ASSIGNMENT
                     )
@@ -296,7 +308,7 @@ def booking_post_save(sender, instance, created, **kwargs):
         send_push_notification(
             user=parties['owner_user'],
             title='Staff Assignment Changed',
-            body=f'Staff member changed for a {service_name} booking.',
+            body=f'Staff member changed for a {item_name} booking.',
             data={'booking_id': booking_id, 'type': NotificationType.STAFF_ASSIGNMENT},
             notification_type=NotificationType.STAFF_ASSIGNMENT
         )
@@ -314,21 +326,22 @@ def booking_post_save(sender, instance, created, **kwargs):
         send_push_notification(
             user=parties['customer_user'],
             title='Booking Rescheduled 📅',
-            body=f'Your {service_name} booking has been rescheduled.',
+            body=f'Your {item_name} booking has been rescheduled.',
             data={'booking_id': booking_id, 'type': NotificationType.BOOKING_RESCHEDULE},
             notification_type=NotificationType.BOOKING_RESCHEDULE
         )
-        send_push_notification(
-            user=parties['staff_user'],
-            title='Booking Rescheduled',
-            body=f'A {service_name} booking has been rescheduled.',
-            data={'booking_id': booking_id, 'type': NotificationType.BOOKING_RESCHEDULE},
-            notification_type=NotificationType.BOOKING_RESCHEDULE
-        )
+        if instance.staff_member:
+            send_push_notification(
+                user=parties['staff_user'],
+                title='Booking Rescheduled',
+                body=f'A {item_name} booking has been rescheduled.',
+                data={'booking_id': booking_id, 'type': NotificationType.BOOKING_RESCHEDULE},
+                notification_type=NotificationType.BOOKING_RESCHEDULE
+            )
         send_push_notification(
             user=parties['owner_user'],
             title='Booking Rescheduled',
-            body=f'A {service_name} booking has been rescheduled.',
+            body=f'A {item_name} booking has been rescheduled.',
             data={'booking_id': booking_id, 'type': NotificationType.BOOKING_RESCHEDULE},
             notification_type=NotificationType.BOOKING_RESCHEDULE
         )
