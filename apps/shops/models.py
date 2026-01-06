@@ -58,6 +58,18 @@ class Shop(BaseModel):
         help_text='Maximum number of deal bookings that can happen at the same time slot'
     )
     
+    # Advance payment settings
+    advance_payment_enabled = models.BooleanField(
+        default=True,
+        help_text='Whether customers must pay advance deposit to confirm booking'
+    )
+    advance_payment_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=10.00,
+        help_text='Percentage of service price required as advance deposit (0-100)'
+    )
+    
     class Meta:
         db_table = 'shops'
         verbose_name = 'Shop'

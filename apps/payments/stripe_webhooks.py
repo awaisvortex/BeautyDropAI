@@ -410,6 +410,130 @@ def handle_invoice_payment_failed(event):
         raise
 
 
+@transaction.atomic
+def handle_payment_intent_succeeded(event):
+    """
+    Handle payment_intent.succeeded event.
+    
+    For booking advance payments - confirms the booking when payment completes.
+    """
+    start_time = time.time()
+    payment_intent = event['data']['object']
+    event_id = event['id']
+    
+    try:
+        # Check if this is a booking payment
+        metadata = payment_intent.get('metadata', {})
+        if metadata.get('type') != 'advance_deposit':
+            logger.info(f"Payment intent {payment_intent['id']} is not a booking deposit, skipping")
+            log_webhook_event('payment_intent.succeeded', event_id, event, True, 'Not a booking deposit')
+            return
+        
+        logger.info(f"Processing payment_intent.succeeded for booking deposit: {payment_intent['id']}")
+        
+        # Confirm booking payment
+        from apps.payments.booking_payment_service import booking_payment_service
+        result = booking_payment_service.confirm_booking_payment(payment_intent['id'])
+        
+        if result['success']:
+            processing_time = time.time() - start_time
+            log_webhook_event('payment_intent.succeeded', event_id, event, True)
+            logger.info(f"Confirmed booking {result.get('booking_id')} in {processing_time:.2f}s")
+        else:
+            log_webhook_event('payment_intent.succeeded', event_id, event, False, result.get('error', 'Unknown error'))
+            
+    except Exception as e:
+        error_msg = f"Error processing payment_intent.succeeded: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        log_webhook_event('payment_intent.succeeded', event_id, event, False, error_msg)
+        raise
+
+
+@transaction.atomic
+def handle_payment_intent_payment_failed(event):
+    """
+    Handle payment_intent.payment_failed event.
+    
+    Logs failed booking payment attempts.
+    """
+    payment_intent = event['data']['object']
+    event_id = event['id']
+    
+    metadata = payment_intent.get('metadata', {})
+    if metadata.get('type') != 'advance_deposit':
+        log_webhook_event('payment_intent.payment_failed', event_id, event, True, 'Not a booking deposit')
+        return
+    
+    logger.warning(f"Booking payment failed: {payment_intent['id']}")
+    
+    # Update BookingPayment status
+    try:
+        from apps.payments.models import BookingPayment
+        from apps.core.utils.constants import BOOKING_PAYMENT_FAILED
+        
+        booking_payment = BookingPayment.objects.get(
+            stripe_payment_intent_id=payment_intent['id']
+        )
+        booking_payment.status = BOOKING_PAYMENT_FAILED
+        booking_payment.save(update_fields=['status'])
+        
+        booking_payment.booking.payment_status = BOOKING_PAYMENT_FAILED
+        booking_payment.booking.save(update_fields=['payment_status'])
+        
+        log_webhook_event('payment_intent.payment_failed', event_id, event, True)
+        
+    except BookingPayment.DoesNotExist:
+        log_webhook_event('payment_intent.payment_failed', event_id, event, False, 'BookingPayment not found')
+
+
+@transaction.atomic
+def handle_account_updated(event):
+    """
+    Handle account.updated event for Connect accounts.
+    
+    Updates local ConnectedAccount record when owner completes onboarding.
+    """
+    start_time = time.time()
+    account = event['data']['object']
+    event_id = event['id']
+    
+    try:
+        logger.info(f"Processing account.updated: {account['id']}")
+        
+        from apps.payments.models import ConnectedAccount
+        
+        try:
+            connected_account = ConnectedAccount.objects.get(
+                stripe_account_id=account['id']
+            )
+        except ConnectedAccount.DoesNotExist:
+            logger.warning(f"ConnectedAccount not found for {account['id']}")
+            log_webhook_event('account.updated', event_id, event, False, 'Account not found')
+            return
+        
+        # Update account status
+        connected_account.charges_enabled = account.get('charges_enabled', False)
+        connected_account.payouts_enabled = account.get('payouts_enabled', False)
+        connected_account.details_submitted = account.get('details_submitted', False)
+        
+        # Check if onboarding is complete
+        if connected_account.charges_enabled and connected_account.details_submitted:
+            connected_account.onboarding_complete = True
+        
+        connected_account.business_type = account.get('business_type', '')
+        connected_account.save()
+        
+        processing_time = time.time() - start_time
+        log_webhook_event('account.updated', event_id, event, True)
+        logger.info(f"Updated ConnectedAccount {account['id']} in {processing_time:.2f}s")
+        
+    except Exception as e:
+        error_msg = f"Error processing account.updated: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        log_webhook_event('account.updated', event_id, event, False, error_msg)
+        raise
+
+
 # Event handler mapping
 STRIPE_EVENT_HANDLERS = {
     'checkout.session.completed': handle_checkout_session_completed,
@@ -418,6 +542,11 @@ STRIPE_EVENT_HANDLERS = {
     'customer.subscription.deleted': handle_subscription_deleted,
     'invoice.payment_succeeded': handle_invoice_payment_succeeded,
     'invoice.payment_failed': handle_invoice_payment_failed,
+    # Booking payment events
+    'payment_intent.succeeded': handle_payment_intent_succeeded,
+    'payment_intent.payment_failed': handle_payment_intent_payment_failed,
+    # Connect account events
+    'account.updated': handle_account_updated,
 }
 
 
@@ -442,6 +571,8 @@ def process_stripe_webhook(event):
         return True
     
     # Get handler for event type
+    logger.info(f"Looking for handler for event_type: '{event_type}'")
+    logger.info(f"Available handlers: {list(STRIPE_EVENT_HANDLERS.keys())}")
     handler = STRIPE_EVENT_HANDLERS.get(event_type)
     
     if handler:

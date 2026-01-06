@@ -17,6 +17,8 @@ CSRF_TRUSTED_ORIGINS = [
     'https://beautydrop.ai',
     'https://www.beautydrop.ai',
     'https://api.beautydrop.ai',
+    'https://staging.beautydrop.ai',
+    'https://staging.api.beautydrop.ai',
 ]
 
 SECURE_BROWSER_XSS_FILTER = True
