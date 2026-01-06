@@ -49,6 +49,11 @@ from apps.agent.tools.staff_tools import (
     GetMyServicesTool,
     GetTodaySummaryTool
 )
+from apps.agent.tools.deal_tools import (
+    GetShopDealsTool,
+    GetDealSlotsTool,
+    CreateDealBookingTool
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +97,10 @@ ALL_TOOLS: List[BaseTool] = [
     GetCustomerHistoryTool(),
     GetMyServicesTool(),
     GetTodaySummaryTool(),
+    # Deal tools
+    GetShopDealsTool(),
+    GetDealSlotsTool(),
+    CreateDealBookingTool(),
 ]
 
 

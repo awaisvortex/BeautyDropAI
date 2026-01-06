@@ -4,7 +4,7 @@ Booking views - COMPLETE AND FIXED
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiExample
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
@@ -128,6 +128,47 @@ class BookingViewSet(viewsets.GenericViewSet,
         
         serializer = BookingListSerializer(bookings, many=True)
         return Response(serializer.data)
+    
+    @extend_schema(
+        summary="My booking stats",
+        description="Get current customer's booking statistics including upcoming count",
+        responses={200: dict},
+        tags=['Bookings - Customer']
+    )
+    @action(detail=False, methods=['get'], permission_classes=[IsCustomer])
+    def my_stats(self, request):
+        """Get customer's booking statistics"""
+        bookings = self.get_queryset()
+        now = timezone.now()
+        
+        # Upcoming = future bookings that are pending or confirmed
+        upcoming = bookings.filter(
+            booking_datetime__gte=now,
+            status__in=['pending', 'confirmed']
+        ).count()
+        
+        # Past due = past bookings that are still pending/confirmed (should be completed/no_show)
+        past_due = bookings.filter(
+            booking_datetime__lt=now,
+            status__in=['pending', 'confirmed']
+        ).count()
+        
+        # Completed
+        completed = bookings.filter(status='completed').count()
+        
+        # Cancelled
+        cancelled = bookings.filter(status='cancelled').count()
+        
+        # Total
+        total = bookings.count()
+        
+        return Response({
+            'upcoming': upcoming,
+            'past_due': past_due,
+            'completed': completed,
+            'cancelled': cancelled,
+            'total': total
+        })
     
     @extend_schema(
         summary="Dynamic booking (no TimeSlot required)",
@@ -649,7 +690,7 @@ class BookingViewSet(viewsets.GenericViewSet,
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            if schedule.is_closed:
+            if not schedule.is_active:
                 return Response(
                     {'error': 'Shop is closed on this day'},
                     status=status.HTTP_400_BAD_REQUEST
@@ -960,7 +1001,7 @@ class BookingViewSet(viewsets.GenericViewSet,
         },
         tags=['Deals - Booking']
     )
-    @action(detail=False, methods=['get'], permission_classes=[IsCustomer])
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def deal_slots(self, request):
         """Get available slots for deal booking with capacity info."""
         from apps.services.models import Deal
@@ -1021,7 +1062,7 @@ class BookingViewSet(viewsets.GenericViewSet,
                 'message': 'Shop has no schedule for this day'
             })
         
-        if schedule.is_closed or not schedule.start_time or not schedule.end_time:
+        if not schedule.is_active or not schedule.start_time or not schedule.end_time:
             return Response({
                 'deal_id': str(deal.id),
                 'deal_name': deal.name,

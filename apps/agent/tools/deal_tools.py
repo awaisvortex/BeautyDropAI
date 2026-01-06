@@ -214,7 +214,7 @@ class GetDealSlotsTool(BaseTool):
                     "message": f"{shop.name} has no schedule for {day_name.capitalize()}"
                 }
             
-            if schedule.is_closed or not schedule.start_time or not schedule.end_time:
+            if not schedule.is_active or not schedule.start_time or not schedule.end_time:
                 return {
                     "success": True,
                     "deal": deal.name,
