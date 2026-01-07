@@ -48,6 +48,36 @@ steps:
       - "--port"
       - "8080"
 
+  # Deploy Worker to Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - "run"
+      - "deploy"
+      - "beautydrop-worker-production"
+      - "--image"
+      - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
+      - "--region"
+      - "us-east1"
+      - "--platform"
+      - "managed"
+      - "--allow-unauthenticated"
+      - "--memory"
+      - "1Gi"
+      - "--cpu"
+      - "1"
+      - "--no-cpu-throttling"
+      - "--min-instances"
+      - "1"
+      - "--max-instances"
+      - "5"
+      - "--timeout"
+      - "300"
+      - "--port"
+      - "8080"
+      - "--command"
+      - "/app/worker_entrypoint.sh"
+
 # Store images in Artifact Registry
 images:
   - "us-east1-docker.pkg.dev/$PROJECT_ID/beautydrop-django/app:$COMMIT_SHA"
