@@ -7,6 +7,7 @@ Endpoints:
 - GET /api/v1/scraper/{id}/ - Get scrape job details
 - POST /api/v1/scraper/{id}/confirm/ - Confirm and create shop
 - DELETE /api/v1/scraper/{id}/cancel/ - Cancel/delete a job
+- GET /api/v1/scraper/limits/ - Get scraping limits info
 """
 import logging
 from rest_framework import viewsets, status
@@ -22,10 +23,13 @@ from apps.clients.models import Client
 from .models import ScrapeJob, ScrapeJobStatus
 from .serializers import (
     ScrapeSubmitSerializer,
+    ScrapeSubmitResponseSerializer,
     ScrapeJobSerializer,
     ScrapeJobListSerializer,
     ScrapeConfirmSerializer,
     ScrapeConfirmResponseSerializer,
+    ScrapingLimitErrorSerializer,
+    ScrapingLimitsResponseSerializer,
 )
 from .tasks import scrape_website_task
 
@@ -58,13 +62,61 @@ class ScraperViewSet(viewsets.GenericViewSet):
             return ScrapeJobListSerializer
         return ScrapeJobSerializer
     
+    def _check_scraping_limit(self, client):
+        """
+        Check if client has reached their scraping limit.
+        
+        Returns:
+            tuple: (has_reached_limit, error_response_data)
+        """
+        scraping_count = client.scraping_count
+        scraping_limit = client.scraping_limit
+        scraping_remaining = max(0, scraping_limit - scraping_count)
+        
+        if scraping_count >= scraping_limit:
+            return True, {
+                'error': 'Scraping limit reached',
+                'scraping_count': scraping_count,
+                'scraping_limit': scraping_limit,
+                'scraping_remaining': 0,
+            }
+        
+        return False, None
+    
+    @extend_schema(
+        summary="Get scraping limits",
+        description="Get the current scraping usage and limits for the authenticated client.",
+        responses={
+            200: ScrapingLimitsResponseSerializer,
+            400: OpenApiResponse(description="Client not found"),
+        },
+        tags=['Scraper']
+    )
+    @action(detail=False, methods=['get'])
+    def limits(self, request):
+        """Get scraping limits for the current user."""
+        try:
+            client = Client.objects.get(user=request.user)
+        except Client.DoesNotExist:
+            return Response(
+                {'error': 'Client profile not found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        return Response({
+            'scraping_count': client.scraping_count,
+            'scraping_limit': client.scraping_limit,
+            'scraping_remaining': max(0, client.scraping_limit - client.scraping_count),
+        })
+    
     @extend_schema(
         summary="Submit URL for scraping",
         description="Submit a salon website URL to scrape. Creates a ScrapeJob and queues async scraping task.",
         request=ScrapeSubmitSerializer,
         responses={
-            201: ScrapeJobSerializer,
+            201: ScrapeSubmitResponseSerializer,
             400: OpenApiResponse(description="Invalid URL or client not found"),
+            403: ScrapingLimitErrorSerializer,
             409: OpenApiResponse(description="Scraping job already in progress for this URL"),
         },
         tags=['Scraper']
@@ -89,6 +141,11 @@ class ScraperViewSet(viewsets.GenericViewSet):
                 {'error': 'Client profile not found'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        
+        # Check scraping limit
+        limit_reached, error_data = self._check_scraping_limit(client)
+        if limit_reached:
+            return Response(error_data, status=status.HTTP_403_FORBIDDEN)
         
         # Check for duplicate pending/scraping jobs
         existing_job = ScrapeJob.objects.filter(
@@ -120,7 +177,16 @@ class ScraperViewSet(viewsets.GenericViewSet):
         logger.info(f"Created scrape job {scrape_job.id} for URL: {url}")
         
         return Response(
-            ScrapeJobSerializer(scrape_job).data,
+            {
+                'id': str(scrape_job.id),
+                'url': scrape_job.url,
+                'platform': scrape_job.platform,
+                'status': scrape_job.status,
+                'scraping_count': client.scraping_count,
+                'scraping_limit': client.scraping_limit,
+                'scraping_remaining': max(0, client.scraping_limit - client.scraping_count),
+                'created_at': scrape_job.created_at,
+            },
             status=status.HTTP_201_CREATED
         )
     
@@ -181,7 +247,7 @@ Frontend should poll this endpoint and show loading until HTTP 200 is returned."
         description="Confirm scrape job and create shop with extracted data. Optionally allows overriding extracted data.",
         request=ScrapeConfirmSerializer,
         responses={
-            200: ScrapeConfirmResponseSerializer,
+            202: ScrapeConfirmResponseSerializer,
             400: OpenApiResponse(description="Invalid status or missing data"),
             404: OpenApiResponse(description="Scrape job not found"),
             409: OpenApiResponse(description="Shop already created"),
