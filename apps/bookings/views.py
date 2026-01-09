@@ -329,6 +329,7 @@ class BookingViewSet(viewsets.GenericViewSet,
         booking_end = booking_datetime + timedelta(minutes=service.duration_minutes)
         
         # Create booking (no TimeSlot needed)
+        # Status set to 'confirmed' - no advance payment required
         booking = Booking.objects.create(
             customer=customer,
             shop=service.shop,
@@ -339,29 +340,16 @@ class BookingViewSet(viewsets.GenericViewSet,
             duration_minutes=service.duration_minutes,
             total_price=service.price,
             notes=serializer.validated_data.get('notes', ''),
-            status='pending'
+            status='confirmed',
+            payment_status='not_required'
         )
-        
-        # Create advance payment if required
-        from apps.payments.booking_payment_service import booking_payment_service
-        payment_result = booking_payment_service.create_advance_payment(booking)
         
         # Build response
         response_data = BookingSerializer(booking).data
-        
-        # Add payment info to response
-        if payment_result.get('payment_required'):
-            response_data['payment'] = {
-                'required': True,
-                'client_secret': payment_result['client_secret'],
-                'amount': float(payment_result['amount']),
-                'currency': payment_result['currency'],
-            }
-        else:
-            response_data['payment'] = {
-                'required': False,
-                'message': payment_result.get('message', 'No payment required'),
-            }
+        response_data['payment'] = {
+            'required': False,
+            'message': 'No advance payment required'
+        }
         
         return Response(
             response_data,
