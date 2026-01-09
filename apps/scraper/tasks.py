@@ -62,6 +62,20 @@ def scrape_website_task(self, scrape_job_id: str):
         scrape_job.status = ScrapeJobStatus.COMPLETED
         scrape_job.save(update_fields=['extracted_data', 'status', 'updated_at'])
         
+        # Step 5: Increment client's scraping count
+        from django.db.models import F
+        from apps.clients.models import Client
+        
+        Client.objects.filter(id=scrape_job.client_id).update(
+            scraping_count=F('scraping_count') + 1
+        )
+        # Refresh to get updated count for logging
+        scrape_job.client.refresh_from_db()
+        logger.info(
+            f"Incremented scraping count for client {scrape_job.client_id} "
+            f"({scrape_job.client.scraping_count}/{scrape_job.client.scraping_limit})"
+        )
+        
         logger.info(f"AI parsing complete for job {scrape_job_id}")
         logger.info(f"Extracted: shop={extracted_data.get('shop', {}).get('name')}, "
                    f"services={len(extracted_data.get('services', []))}, "

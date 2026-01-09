@@ -192,9 +192,34 @@ class ShopViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Delete shop",
-        description="Delete a shop (salon owners only)",
+        description="""
+        Delete a shop and ALL associated data (salon owners only).
+        
+        **This is a permanent action that:**
+        - Deletes ALL staff members from the shop
+        - Deletes staff user accounts from Clerk (they won't be able to log in anymore)
+        - Deletes all services and deals from Pinecone
+        - Deletes the shop from Pinecone
+        - Deletes the shop and all related data from the database
+        
+        **Note:** Bookings are preserved for records but will show the shop/staff as deleted.
+        """,
         responses={
-            200: SuccessResponseSerializer,
+            200: OpenApiResponse(
+                description="Shop deleted successfully",
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'success': {'type': 'boolean'},
+                        'message': {'type': 'string'},
+                        'deleted_shop': {'type': 'string'},
+                        'deleted_staff_count': {'type': 'integer'},
+                        'deleted_clerk_users': {'type': 'integer'},
+                        'deleted_services_count': {'type': 'integer'},
+                        'deleted_deals_count': {'type': 'integer'},
+                    }
+                }
+            ),
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Shop not found")
         },
@@ -203,11 +228,56 @@ class ShopViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         shop_name = instance.name
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Get counts before deletion
+        staff_members = list(instance.staff_members.select_related('user').all())
+        services_count = instance.services.count()
+        deals_count = instance.deals.count()
+        
+        # Delete all staff members and their Clerk accounts
+        from apps.authentication.services.clerk_api import clerk_client
+        deleted_staff_count = 0
+        deleted_clerk_users = 0
+        
+        for staff in staff_members:
+            staff_name = staff.name
+            user = staff.user
+            clerk_user_id = user.clerk_user_id if user else None
+            
+            # Delete staff member
+            staff.delete()
+            deleted_staff_count += 1
+            logger.info(f"Deleted staff member: {staff_name}")
+            
+            # Delete user from Django DB
+            if user:
+                try:
+                    user.delete()
+                    logger.info(f"Deleted user {clerk_user_id} from database")
+                except Exception as e:
+                    logger.error(f"Failed to delete user {clerk_user_id}: {e}")
+            
+            # Delete from Clerk
+            if clerk_user_id and not clerk_user_id.startswith('local_'):
+                if clerk_client.delete_user(clerk_user_id):
+                    deleted_clerk_users += 1
+        
+        # Delete the shop (services, deals, schedules cascade via Django)
+        # Pinecone cleanup is handled by pre_delete signal in apps/agent/signals.py
         self.perform_destroy(instance)
-        return Response(
-            {"success": True, "message": f"Shop '{shop_name}' deleted successfully"},
-            status=status.HTTP_200_OK
-        )
+        
+        return Response({
+            "success": True,
+            "message": f"Shop '{shop_name}' and all associated data deleted successfully",
+            "deleted_shop": shop_name,
+            "deleted_staff_count": deleted_staff_count,
+            "deleted_clerk_users": deleted_clerk_users,
+            "deleted_services_count": services_count,
+            "deleted_deals_count": deals_count,
+        }, status=status.HTTP_200_OK)
     
     @extend_schema(
         summary="My shops",

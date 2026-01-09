@@ -6,6 +6,10 @@ from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
 from .models import ScrapeJob
 
 
+# ============================================================
+# Input Serializers
+# ============================================================
+
 @extend_schema_serializer(
     examples=[
         OpenApiExample(
@@ -93,78 +97,6 @@ class ExtractedDataSerializer(serializers.Serializer):
 @extend_schema_serializer(
     examples=[
         OpenApiExample(
-            'Completed Job',
-            value={
-                'id': '1d65492d-0ec0-4916-b8f4-9718a89bb3d3',
-                'url': 'https://example-salon.com',
-                'platform': 'generic',
-                'status': 'completed',
-                'extracted_data': {
-                    'shop': {
-                        'name': 'Example Salon',
-                        'city': 'Los Angeles',
-                        'phone': '+12025551234'
-                    },
-                    'services': [
-                        {'name': 'Haircut', 'price': 45, 'duration_minutes': 60}
-                    ],
-                    'schedule': [
-                        {'day_of_week': 'monday', 'start_time': '09:00', 'end_time': '18:00'}
-                    ]
-                },
-                'error_message': '',
-                'shop_id': None,
-                'shop_name': None,
-                'client_email': 'owner@salon.com',
-                'created_at': '2025-12-31T08:00:00Z',
-                'updated_at': '2025-12-31T08:01:00Z'
-            },
-            response_only=True,
-        ),
-    ]
-)
-class ScrapeJobSerializer(serializers.ModelSerializer):
-    """Full response serializer for ScrapeJob with extracted data"""
-    client_email = serializers.EmailField(source='client.user.email', read_only=True)
-    shop_id = serializers.UUIDField(source='shop.id', read_only=True, allow_null=True)
-    shop_name = serializers.CharField(source='shop.name', read_only=True, allow_null=True)
-    extracted_data = ExtractedDataSerializer(read_only=True)
-    
-    class Meta:
-        model = ScrapeJob
-        fields = [
-            'id',
-            'url',
-            'platform',
-            'status',
-            'extracted_data',
-            'error_message',
-            'shop_id',
-            'shop_name',
-            'client_email',
-            'created_at',
-            'updated_at',
-        ]
-        read_only_fields = fields
-
-
-class ScrapeJobListSerializer(serializers.ModelSerializer):
-    """Compact serializer for listing scrape jobs"""
-    
-    class Meta:
-        model = ScrapeJob
-        fields = [
-            'id',
-            'url',
-            'platform',
-            'status',
-            'created_at',
-        ]
-
-
-@extend_schema_serializer(
-    examples=[
-        OpenApiExample(
             'Confirm with extracted data',
             description='Use extracted shop data as-is',
             value={
@@ -227,13 +159,101 @@ class ScrapeConfirmSerializer(serializers.Serializer):
         return value
 
 
-class ScrapeConfirmResponseSerializer(serializers.Serializer):
-    """Response serializer for confirm endpoint"""
-    success = serializers.BooleanField(help_text="Whether shop was created successfully")
-    shop_id = serializers.UUIDField(help_text="ID of the created shop")
-    shop_name = serializers.CharField(help_text="Name of the created shop")
-    services_created = serializers.IntegerField(help_text="Number of services created")
-    schedules_created = serializers.IntegerField(help_text="Number of schedule entries created")
+# ============================================================
+# Response Serializers
+# ============================================================
+
+class ScrapingLimitInfoSerializer(serializers.Serializer):
+    """Serializer for scraping limit information"""
+    scraping_count = serializers.IntegerField(help_text="Number of completed scrape jobs")
+    scraping_limit = serializers.IntegerField(help_text="Maximum allowed scrape jobs")
+    scraping_remaining = serializers.IntegerField(help_text="Remaining scraping quota")
+
+
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Completed Job',
+            value={
+                'id': '1d65492d-0ec0-4916-b8f4-9718a89bb3d3',
+                'url': 'https://example-salon.com',
+                'platform': 'generic',
+                'status': 'completed',
+                'extracted_data': {
+                    'shop': {
+                        'name': 'Example Salon',
+                        'city': 'Los Angeles',
+                        'phone': '+12025551234'
+                    },
+                    'services': [
+                        {'name': 'Haircut', 'price': 45, 'duration_minutes': 60}
+                    ],
+                    'schedule': [
+                        {'day_of_week': 'monday', 'start_time': '09:00', 'end_time': '18:00'}
+                    ]
+                },
+                'error_message': '',
+                'shop_id': None,
+                'shop_name': None,
+                'client_email': 'owner@salon.com',
+                'scraping_count': 3,
+                'scraping_limit': 5,
+                'scraping_remaining': 2,
+                'created_at': '2025-12-31T08:00:00Z',
+                'updated_at': '2025-12-31T08:01:00Z'
+            },
+            response_only=True,
+        ),
+    ]
+)
+class ScrapeJobSerializer(serializers.ModelSerializer):
+    """Full response serializer for ScrapeJob with extracted data"""
+    client_email = serializers.EmailField(source='client.user.email', read_only=True)
+    shop_id = serializers.UUIDField(source='shop.id', read_only=True, allow_null=True)
+    shop_name = serializers.CharField(source='shop.name', read_only=True, allow_null=True)
+    extracted_data = ExtractedDataSerializer(read_only=True)
+    
+    # Scraping limit info from client
+    scraping_count = serializers.IntegerField(source='client.scraping_count', read_only=True)
+    scraping_limit = serializers.IntegerField(source='client.scraping_limit', read_only=True)
+    scraping_remaining = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ScrapeJob
+        fields = [
+            'id',
+            'url',
+            'platform',
+            'status',
+            'extracted_data',
+            'error_message',
+            'shop_id',
+            'shop_name',
+            'client_email',
+            'scraping_count',
+            'scraping_limit',
+            'scraping_remaining',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = fields
+    
+    def get_scraping_remaining(self, obj):
+        return max(0, obj.client.scraping_limit - obj.client.scraping_count)
+
+
+class ScrapeJobListSerializer(serializers.ModelSerializer):
+    """Compact serializer for listing scrape jobs"""
+    
+    class Meta:
+        model = ScrapeJob
+        fields = [
+            'id',
+            'url',
+            'platform',
+            'status',
+            'created_at',
+        ]
 
 
 class ScrapeSubmitResponseSerializer(serializers.Serializer):
@@ -242,4 +262,32 @@ class ScrapeSubmitResponseSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="URL being scraped")
     platform = serializers.CharField(help_text="Detected platform (google_business, yelp, generic, etc.)")
     status = serializers.CharField(help_text="Job status (pending, scraping, parsing, completed, failed)")
+    scraping_count = serializers.IntegerField(help_text="Number of completed scrape jobs")
+    scraping_limit = serializers.IntegerField(help_text="Maximum allowed scrape jobs")
+    scraping_remaining = serializers.IntegerField(help_text="Remaining scraping quota")
     created_at = serializers.DateTimeField(help_text="Job creation time")
+
+
+class ScrapeConfirmResponseSerializer(serializers.Serializer):
+    """Response serializer for confirm endpoint"""
+    success = serializers.BooleanField(help_text="Whether shop was created successfully")
+    message = serializers.CharField(help_text="Status message")
+    job_id = serializers.UUIDField(help_text="Scrape job ID")
+    status = serializers.CharField(help_text="Current job status")
+    services_count = serializers.IntegerField(help_text="Number of services to be created")
+    deals_count = serializers.IntegerField(help_text="Number of deals to be created")
+
+
+class ScrapingLimitErrorSerializer(serializers.Serializer):
+    """Response serializer for scraping limit exceeded error"""
+    error = serializers.CharField(help_text="Error message")
+    scraping_count = serializers.IntegerField(help_text="Number of completed scrape jobs")
+    scraping_limit = serializers.IntegerField(help_text="Maximum allowed scrape jobs")
+    scraping_remaining = serializers.IntegerField(help_text="Remaining scraping quota (always 0)")
+
+
+class ScrapingLimitsResponseSerializer(serializers.Serializer):
+    """Response serializer for GET /limits/ endpoint"""
+    scraping_count = serializers.IntegerField(help_text="Number of completed scrape jobs")
+    scraping_limit = serializers.IntegerField(help_text="Maximum allowed scrape jobs")
+    scraping_remaining = serializers.IntegerField(help_text="Remaining scraping quota")
