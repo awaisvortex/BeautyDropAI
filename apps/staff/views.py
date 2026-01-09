@@ -241,13 +241,30 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
         description="""
         Remove a staff member from a shop (salon owners only).
         
+        **This is a permanent action that:**
+        - Deletes the staff member profile from the shop
+        - Deletes the associated user account from the database
+        - Deletes the user from Clerk (they won't be able to log in anymore)
+        
         **Restrictions:**
         - Cannot delete if staff has pending or confirmed bookings
         - Reassign all active bookings to other staff first using `/bookings/{id}/reassign_staff/`
         - Then the staff member can be deleted
         """,
         responses={
-            200: SuccessResponseSerializer,
+            200: OpenApiResponse(
+                description="Staff deleted successfully",
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'success': {'type': 'boolean'},
+                        'message': {'type': 'string'},
+                        'deleted_staff': {'type': 'string'},
+                        'deleted_user': {'type': 'boolean'},
+                        'deleted_clerk_user': {'type': 'boolean'},
+                    }
+                }
+            ),
             400: StaffDeleteErrorSerializer,
             403: OpenApiResponse(description="Forbidden"),
             404: OpenApiResponse(description="Staff member not found")
@@ -285,19 +302,50 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
                 {
                     'error': 'Cannot delete staff member with active bookings',
                     'active_bookings_count': active_count,
-                    'message': f"{staff_name} has {active_count} pending/confirmed booking(s). Reassign them to other staff first using /api/v1/bookings/{{id}}/reassign_staff/",
-                    'action_required': 'Use POST /api/v1/bookings/{booking_id}/reassign_staff/ to reassign each booking',
+                    'message': f"{staff_name} has {active_count} pending/confirmed booking(s). Reassign them to other staff first.",
+                    'action_required': 'Use POST /api/v1/bookings/{booking_id}/reassign_staff/ to reassign each booking to another staff member',
                     'bookings_to_reassign': booking_details,
                     'showing_first': min(5, active_count)
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Store user info before deleting staff
+        user = staff_member.user
+        clerk_user_id = user.clerk_user_id if user else None
+        
+        # Track what was deleted
+        deleted_user = False
+        deleted_clerk_user = False
+        
+        # Delete staff member (cascades to StaffService)
         self.perform_destroy(staff_member)
-        return Response(
-            {"success": True, "message": f"Staff member '{staff_name}' deleted successfully"},
-            status=status.HTTP_200_OK
-        )
+        
+        # Delete User from Django database if linked
+        if user:
+            try:
+                user.delete()
+                deleted_user = True
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Deleted user {clerk_user_id} from database for staff {staff_name}")
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to delete user {clerk_user_id}: {e}")
+        
+        # Delete user from Clerk if they had an account
+        if clerk_user_id and not clerk_user_id.startswith('local_'):
+            from apps.authentication.services.clerk_api import clerk_client
+            deleted_clerk_user = clerk_client.delete_user(clerk_user_id)
+        
+        return Response({
+            "success": True,
+            "message": f"Staff member '{staff_name}' deleted successfully",
+            "deleted_staff": staff_name,
+            "deleted_user": deleted_user,
+            "deleted_clerk_user": deleted_clerk_user
+        }, status=status.HTTP_200_OK)
     
     @extend_schema(
         summary="Toggle staff availability",

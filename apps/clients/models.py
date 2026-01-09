@@ -35,6 +35,16 @@ class Client(BaseModel):
     # Limits based on subscription
     max_shops = models.IntegerField(default=1)
     
+    # Scraping limits
+    scraping_limit = models.IntegerField(
+        default=5,
+        help_text='Maximum number of websites that can be scraped'
+    )
+    scraping_count = models.IntegerField(
+        default=0,
+        help_text='Current count of completed scrape jobs'
+    )
+    
     class Meta:
         db_table = 'clients'
         verbose_name = 'Client'

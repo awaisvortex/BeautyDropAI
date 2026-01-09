@@ -329,6 +329,7 @@ class BookingViewSet(viewsets.GenericViewSet,
         booking_end = booking_datetime + timedelta(minutes=service.duration_minutes)
         
         # Create booking (no TimeSlot needed)
+        # Status set to 'confirmed' - no advance payment required
         booking = Booking.objects.create(
             customer=customer,
             shop=service.shop,
@@ -339,29 +340,16 @@ class BookingViewSet(viewsets.GenericViewSet,
             duration_minutes=service.duration_minutes,
             total_price=service.price,
             notes=serializer.validated_data.get('notes', ''),
-            status='pending'
+            status='confirmed',
+            payment_status='not_required'
         )
-        
-        # Create advance payment if required
-        from apps.payments.booking_payment_service import booking_payment_service
-        payment_result = booking_payment_service.create_advance_payment(booking)
         
         # Build response
         response_data = BookingSerializer(booking).data
-        
-        # Add payment info to response
-        if payment_result.get('payment_required'):
-            response_data['payment'] = {
-                'required': True,
-                'client_secret': payment_result['client_secret'],
-                'amount': float(payment_result['amount']),
-                'currency': payment_result['currency'],
-            }
-        else:
-            response_data['payment'] = {
-                'required': False,
-                'message': payment_result.get('message', 'No payment required'),
-            }
+        response_data['payment'] = {
+            'required': False,
+            'message': 'No advance payment required'
+        }
         
         return Response(
             response_data,
@@ -504,7 +492,13 @@ class BookingViewSet(viewsets.GenericViewSet,
     )
     @action(detail=True, methods=['post'], permission_classes=[IsClient, IsBookingOwner])
     def confirm(self, request, pk=None):
-        """Confirm a booking"""
+        """
+        Confirm a booking.
+        
+        Behavior depends on shop's Stripe Connect status:
+        - No Stripe Connect: Manual confirmation allowed (old flow)
+        - Stripe Connect active: Blocked until customer pays advance payment
+        """
         booking = self.get_object()
         
         if booking.status != 'pending':
@@ -513,6 +507,35 @@ class BookingViewSet(viewsets.GenericViewSet,
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Check if shop owner has Stripe Connect set up
+        from apps.payments.models import ConnectedAccount
+        shop_has_stripe_connect = False
+        try:
+            connected_account = booking.shop.client.connected_account
+            shop_has_stripe_connect = connected_account.is_ready_for_payments
+        except ConnectedAccount.DoesNotExist:
+            pass
+        
+        # If Stripe Connect is NOT set up, allow manual confirmation (old flow)
+        if not shop_has_stripe_connect:
+            booking.status = 'confirmed'
+            booking.save(update_fields=['status'])
+            return Response(BookingSerializer(booking).data)
+        
+        # Stripe Connect IS set up - require advance payment before confirmation
+        # payment_status options: 'pending', 'paid', 'not_required', 'refunded', 'failed'
+        if booking.payment_status == 'pending':
+            return Response(
+                {
+                    'error': 'Booking requires advance payment before confirmation. Customer has not paid yet.',
+                    'payment_status': booking.payment_status,
+                    'stripe_connect_active': True,
+                    'message': 'With Stripe Connect enabled, bookings are auto-confirmed when customer pays.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Payment is either 'paid' or 'not_required' - allow confirmation
         booking.status = 'confirmed'
         booking.save(update_fields=['status'])
         return Response(BookingSerializer(booking).data)

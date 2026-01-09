@@ -1,172 +1,230 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Booking Confirmed</title>
-    <style>
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          Oxygen, Ubuntu, sans-serif;
-        line-height: 1.6;
-        color: #333;
-        max-width: 600px;
-        margin: 0 auto;
-        padding: 20px;
-        background-color: #f5f5f5;
-      }
-      .container {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 32px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      }
-      .header {
-        text-align: center;
-        padding-bottom: 24px;
-        border-bottom: 1px solid #eee;
-        margin-bottom: 24px;
-      }
-      .logo {
-        font-size: 24px;
-        font-weight: bold;
-        color: #8b5cf6;
-      }
-      .success-icon {
-        font-size: 48px;
-        margin: 16px 0;
-      }
-      h1 {
-        color: #1a1a1a;
-        font-size: 24px;
-        margin: 0;
-      }
-      .booking-details {
-        background-color: #f8f5ff;
-        border-radius: 8px;
-        padding: 20px;
-        margin: 24px 0;
-      }
-      .detail-row {
-        display: flex;
-        justify-content: space-between;
-        padding: 8px 0;
-        border-bottom: 1px solid #e8e0f7;
-      }
-      .detail-row:last-child {
-        border-bottom: none;
-      }
-      .detail-label {
-        color: #666;
-        font-size: 14px;
-      }
-      .detail-value {
-        font-weight: 600;
-        color: #333;
-      }
-      .cta-button {
-        display: inline-block;
-        background-color: #8b5cf6;
-        color: #ffffff;
-        text-decoration: none;
-        padding: 14px 28px;
-        border-radius: 8px;
-        font-weight: 600;
-        margin: 16px 0;
-      }
-      .footer {
-        text-align: center;
-        padding-top: 24px;
-        border-top: 1px solid #eee;
-        margin-top: 24px;
-        color: #888;
-        font-size: 12px;
-      }
-      .shop-info {
-        background-color: #f0f0f0;
-        border-radius: 8px;
-        padding: 16px;
-        margin-top: 16px;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <div class="logo">✨ BeautyDrop</div>
-        <div class="success-icon">✅</div>
-        <h1>Booking Confirmed!</h1>
-      </div>
 
-      <p>Hi {{ recipient_name }},</p>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Booking Confirmed</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap');
 
-      {% if is_customer %}
-      <p>
-        Great news! Your booking at <strong>{{ shop_name }}</strong> has been
-        confirmed. Here are your appointment details:
-      </p>
-      {% elif is_staff %}
-      <p>You have a new appointment scheduled. Here are the details:</p>
-      {% elif is_owner %}
-      <p>
-        A new booking has been confirmed at your shop. Here are the details:
-      </p>
-      {% endif %}
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8fafc;
+      margin: 0;
+      padding: 40px 20px;
+      color: #334155;
+      -webkit-font-smoothing: antialiased;
+    }
 
-      <div class="booking-details">
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 0;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+    }
+
+    .header {
+      text-align: center;
+      padding: 40px 40px 20px 40px;
+      background: linear-gradient(to bottom, #ffffff, #f8fafc);
+    }
+
+    .logo {
+      font-size: 24px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+      margin-bottom: 24px;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 6px 12px;
+      background: #f0f9ff;
+      color: #0369a1;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 600;
+      color: #0f172a;
+      margin: 0 0 12px 0;
+      letter-spacing: -1px;
+    }
+
+    .content {
+      padding: 0 40px 40px 40px;
+    }
+
+    p {
+      font-size: 16px;
+      line-height: 1.6;
+      color: #64748b;
+      margin: 0 0 32px 0;
+    }
+
+    .details-grid {
+      margin-bottom: 32px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 16px;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .detail-row:last-child {
+      border-bottom: none;
+    }
+
+    .detail-label {
+      font-size: 14px;
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .detail-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f172a;
+      text-align: right;
+    }
+
+    .shop-section {
+      padding: 24px;
+      background: #f8fafc;
+      border-radius: 8px;
+      margin-bottom: 32px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .shop-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #94a3b8;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    .shop-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    .shop-meta {
+      font-size: 14px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      background: #0f172a;
+      color: #ffffff;
+      text-decoration: none;
+      padding: 16px 0;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      text-align: center;
+      transition: opacity 0.2s;
+    }
+
+    .btn:hover {
+      opacity: 0.9;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 24px 40px;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+
+    .footer a {
+      color: #64748b;
+      text-decoration: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">BeautyDrop</div>
+      <div class="status-badge">Confirmed</div>
+      <h1>You're Booked</h1>
+    </div>
+
+    <div class="content">
+      <p>Hi {{ recipient_name }}, your appointment has been successfully scheduled.</p>
+
+      <div class="details-grid">
         <div class="detail-row">
-          <span class="detail-label">📅 Date & Time</span>
-          <span class="detail-value"
-            >{{ booking_datetime|date:"l, F j, Y" }} at {{
-            booking_datetime|time:"g:i A" }}</span
-          >
-        </div>
-        <div class="detail-row">
-          <span class="detail-label">💇 Service</span>
+          <span class="detail-label">Service</span>
           <span class="detail-value">{{ service_name }}</span>
         </div>
         <div class="detail-row">
-          <span class="detail-label">⏱️ Duration</span>
-          <span class="detail-value">{{ service_duration }} minutes</span>
+          <span class="detail-label">Date & Time</span>
+          <span class="detail-value">{{ booking_datetime|date:"F j, Y" }} • {{ booking_datetime|time:"g:i A" }}</span>
         </div>
         <div class="detail-row">
-          <span class="detail-label">👤 Staff</span>
+          <span class="detail-label">Staff</span>
           <span class="detail-value">{{ staff_name }}</span>
         </div>
         {% if is_customer or is_owner %}
         <div class="detail-row">
-          <span class="detail-label">💰 Price</span>
+          <span class="detail-label">Price</span>
           <span class="detail-value">${{ service_price }}</span>
-        </div>
-        {% endif %} {% if is_staff or is_owner %}
-        <div class="detail-row">
-          <span class="detail-label">👤 Customer</span>
-          <span class="detail-value">{{ customer_name }}</span>
         </div>
         {% endif %}
       </div>
 
-      <div class="shop-info">
-        <strong>📍 {{ shop_name }}</strong><br />
-        {{ shop_address }}<br />
-        📞 {{ shop_phone }}
+      <div class="shop-section">
+        <div class="shop-label">Location</div>
+        <span class="shop-name">{{ shop_name }}</span>
+        <div class="shop-meta">
+          {{ shop_address }}<br>
+          {{ shop_phone }}
+        </div>
       </div>
 
       {% if is_customer %}
-      <p style="text-align: center">
-        <a href="#" class="cta-button">View My Booking</a>
-      </p>
-      <p>
-        <strong>Need to make changes?</strong> You can reschedule or cancel your
-        booking through the app.
-      </p>
-      {% endif %}
-
-      <div class="footer">
-        <p>This email was sent by BeautyDrop</p>
-        <p>© {{ current_year }} BeautyDrop. All rights reserved.</p>
-        <p><a href="#">Unsubscribe</a> | <a href="#">Manage Preferences</a></p>
+      <a href="https://beautydrop.ai/customer-dashboard" target="_blank" class="btn">View Booking</a>
+      <div style="text-align: center; margin-top: 16px;">
+        <a href="https://beautydrop.ai/customer-dashboard" target="_blank"
+          style="font-size: 13px; color: #64748b; text-decoration: none;">Manage Booking</a>
       </div>
+      {% endif %}
     </div>
-  </body>
+
+    <div class="footer">
+      <p style="margin: 0;">© {{ current_year }} BeautyDrop. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+
 </html>

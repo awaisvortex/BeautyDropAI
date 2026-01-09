@@ -192,6 +192,31 @@ class ClerkClient:
         except requests.RequestException as e:
             logger.error(f"Error revoking invitation: {str(e)}")
             return False
+    
+    def delete_user(self, user_id: str) -> bool:
+        """
+        Delete user from Clerk
+        
+        Args:
+            user_id: Clerk user ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            url = f"{self.api_url}/users/{user_id}"
+            response = requests.delete(url, headers=self.headers, timeout=10)
+            
+            if response.status_code == 200:
+                logger.info(f"Deleted user {user_id} from Clerk")
+                return True
+            
+            logger.warning(f"Failed to delete user {user_id}: {response.status_code}")
+            return False
+            
+        except requests.RequestException as e:
+            logger.error(f"Error deleting user from Clerk: {str(e)}")
+            return False
 
 
 # Singleton instance

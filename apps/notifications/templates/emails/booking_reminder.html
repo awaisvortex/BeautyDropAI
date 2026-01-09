@@ -1,168 +1,244 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Appointment Reminder</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap');
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8fafc;
+            margin: 0;
+            padding: 40px 20px;
+            color: #334155;
+            -webkit-font-smoothing: antialiased;
         }
+
         .container {
-            background-color: #ffffff;
+            max-width: 500px;
+            margin: 0 auto;
+            background: #ffffff;
             border-radius: 12px;
-            padding: 32px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            padding: 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
         }
+
         .header {
             text-align: center;
-            padding-bottom: 24px;
-            border-bottom: 1px solid #eee;
-            margin-bottom: 24px;
+            padding: 40px 40px 20px 40px;
+            background: linear-gradient(to bottom, #ffffff, #fffbeb);
         }
+
         .logo {
             font-size: 24px;
-            font-weight: bold;
-            color: #8B5CF6;
+            font-weight: 700;
+            color: #0f172a;
+            letter-spacing: -0.5px;
+            margin-bottom: 24px;
         }
-        .reminder-badge {
+
+        .status-badge {
             display: inline-block;
-            background-color: #FEF3C7;
-            color: #92400E;
-            padding: 8px 16px;
-            border-radius: 20px;
+            padding: 6px 12px;
+            background: #fffbeb;
+            color: #b45309;
+            font-size: 13px;
             font-weight: 600;
-            margin: 16px 0;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
-        .urgent-badge {
-            background-color: #FEE2E2;
-            color: #991B1B;
+
+        .status-badge.urgent {
+            background: #fef2f2;
+            color: #b91c1c;
         }
+
         h1 {
-            color: #1a1a1a;
-            font-size: 24px;
-            margin: 0;
+            font-size: 32px;
+            font-weight: 600;
+            color: #0f172a;
+            margin: 0 0 12px 0;
+            letter-spacing: -1px;
         }
-        .booking-details {
-            background-color: #f8f5ff;
+
+        .content {
+            padding: 0 40px 40px 40px;
+        }
+
+        p {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #64748b;
+            margin: 0 0 32px 0;
+        }
+
+        .countdown-box {
+            text-align: center;
+            background: #f8fafc;
             border-radius: 8px;
-            padding: 20px;
-            margin: 24px 0;
+            padding: 24px;
+            margin-bottom: 32px;
+            border: 1px dashed #cbd5e1;
         }
+
+        .countdown-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .countdown-time {
+            font-size: 20px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .details-grid {
+            margin-bottom: 32px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
         .detail-row {
             display: flex;
             justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #e8e0f7;
+            padding: 16px;
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
         }
+
         .detail-row:last-child {
             border-bottom: none;
         }
+
         .detail-label {
-            color: #666;
             font-size: 14px;
+            color: #64748b;
+            font-weight: 500;
         }
+
         .detail-value {
+            font-size: 14px;
             font-weight: 600;
-            color: #333;
+            color: #0f172a;
+            text-align: right;
         }
-        .countdown {
-            text-align: center;
-            font-size: 18px;
-            font-weight: bold;
-            color: #8B5CF6;
-            margin: 20px 0;
-        }
-        .shop-info {
-            background-color: #f0f0f0;
+
+        .shop-section {
+            padding: 24px;
+            background: #f8fafc;
             border-radius: 8px;
-            padding: 16px;
-            margin-top: 16px;
+            margin-bottom: 32px;
+            border: 1px solid #e2e8f0;
         }
+
+        .shop-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .shop-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .shop-meta {
+            font-size: 14px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+
         .footer {
             text-align: center;
-            padding-top: 24px;
-            border-top: 1px solid #eee;
-            margin-top: 24px;
-            color: #888;
-            font-size: 12px;
+            padding: 24px 40px;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .footer a {
+            color: #64748b;
+            text-decoration: none;
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
-            <div class="logo">✨ BeautyDrop</div>
+            <div class="logo">BeautyDrop</div>
             {% if is_1hour %}
-            <div class="reminder-badge urgent-badge">⏰ 1 Hour Reminder</div>
+            <div class="status-badge urgent">Almost time</div>
             {% else %}
-            <div class="reminder-badge">📅 Tomorrow's Appointment</div>
+            <div class="status-badge">Reminder</div>
             {% endif %}
-            <h1>Don't Forget Your Appointment!</h1>
+            <h1>Don't Forget</h1>
         </div>
-        
-        <p>Hi {{ recipient_name }},</p>
-        
-        {% if is_1hour %}
-        <p>This is a friendly reminder that your appointment at <strong>{{ shop_name }}</strong> is <strong>in 1 hour</strong>!</p>
-        {% else %}
-        <p>This is a friendly reminder that you have an appointment <strong>tomorrow</strong> at <strong>{{ shop_name }}</strong>.</p>
-        {% endif %}
-        
-        <div class="countdown">
-            {% if is_1hour %}
-            ⏰ Starting in 1 hour
-            {% else %}
-            📅 Tomorrow at {{ booking_datetime|time:"g:i A" }}
+
+        <div class="content">
+            <p>Hi {{ recipient_name }}, this is a friendly reminder for your upcoming appointment.</p>
+
+            <div class="countdown-box">
+                <div class="countdown-label">Starting</div>
+                <div class="countdown-time">
+                    {% if is_1hour %}
+                    In 1 hour
+                    {% else %}
+                    Tomorrow at {{ booking_datetime|time:"g:i A" }}
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="details-grid">
+                <div class="detail-row">
+                    <span class="detail-label">Service</span>
+                    <span class="detail-value">{{ service_name }}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Staff</span>
+                    <span class="detail-value">{{ staff_name }}</span>
+                </div>
+            </div>
+
+            <div class="shop-section">
+                <div class="shop-label">Location</div>
+                <span class="shop-name">{{ shop_name }}</span>
+                <div class="shop-meta">
+                    {{ shop_address }}<br>
+                    {{ shop_phone }}
+                </div>
+            </div>
+
+            {% if is_customer %}
+            <p style="text-align: center; font-size: 13px; color: #94a3b8; margin: 0;">
+                Running late? Please call {{ shop_phone }}
+            </p>
             {% endif %}
         </div>
-        
-        <div class="booking-details">
-            <div class="detail-row">
-                <span class="detail-label">📅 Date & Time</span>
-                <span class="detail-value">{{ booking_datetime|date:"l, F j, Y" }} at {{ booking_datetime|time:"g:i A" }}</span>
-            </div>
-            <div class="detail-row">
-                <span class="detail-label">💇 Service</span>
-                <span class="detail-value">{{ service_name }}</span>
-            </div>
-            <div class="detail-row">
-                <span class="detail-label">⏱️ Duration</span>
-                <span class="detail-value">{{ service_duration }} minutes</span>
-            </div>
-            <div class="detail-row">
-                <span class="detail-label">👤 Staff</span>
-                <span class="detail-value">{{ staff_name }}</span>
-            </div>
-            {% if is_staff %}
-            <div class="detail-row">
-                <span class="detail-label">👤 Customer</span>
-                <span class="detail-value">{{ customer_name }}</span>
-            </div>
-            {% endif %}
-        </div>
-        
-        <div class="shop-info">
-            <strong>📍 {{ shop_name }}</strong><br>
-            {{ shop_address }}<br>
-            📞 {{ shop_phone }}
-        </div>
-        
-        {% if is_customer %}
-        <p style="margin-top: 20px;"><strong>Running late?</strong> Please let us know as soon as possible so we can adjust accordingly.</p>
-        {% endif %}
-        
+
         <div class="footer">
-            <p>This email was sent by BeautyDrop</p>
-            <p>© {{ current_year }} BeautyDrop. All rights reserved.</p>
-            <p><a href="#">Unsubscribe</a> | <a href="#">Manage Preferences</a></p>
+            <p style="margin: 0;">© {{ current_year }} BeautyDrop. All rights reserved.</p>
         </div>
     </div>
 </body>
+
 </html>

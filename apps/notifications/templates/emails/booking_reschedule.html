@@ -1,162 +1,243 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Booking Rescheduled</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap');
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f8fafc;
+            margin: 0;
+            padding: 40px 20px;
+            color: #334155;
+            -webkit-font-smoothing: antialiased;
         }
+
         .container {
-            background-color: #ffffff;
+            max-width: 500px;
+            margin: 0 auto;
+            background: #ffffff;
             border-radius: 12px;
-            padding: 32px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            padding: 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
         }
+
         .header {
             text-align: center;
-            padding-bottom: 24px;
-            border-bottom: 1px solid #eee;
-            margin-bottom: 24px;
+            padding: 40px 40px 20px 40px;
+            background: linear-gradient(to bottom, #ffffff, #eff6ff);
         }
+
         .logo {
             font-size: 24px;
-            font-weight: bold;
-            color: #8B5CF6;
+            font-weight: 700;
+            color: #0f172a;
+            letter-spacing: -0.5px;
+            margin-bottom: 24px;
         }
-        .reschedule-icon {
-            font-size: 48px;
-            margin: 16px 0;
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            background: #eff6ff;
+            color: #2563eb;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
+
         h1 {
-            color: #1a1a1a;
-            font-size: 24px;
-            margin: 0;
+            font-size: 32px;
+            font-weight: 600;
+            color: #0f172a;
+            margin: 0 0 12px 0;
+            letter-spacing: -1px;
         }
-        .time-change {
-            background-color: #DBEAFE;
+
+        .content {
+            padding: 0 40px 40px 40px;
+        }
+
+        p {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #64748b;
+            margin: 0 0 32px 0;
+        }
+
+        .time-change-box {
+            background: #f8fafc;
             border-radius: 8px;
-            padding: 20px;
-            margin: 24px 0;
+            padding: 24px;
+            margin-bottom: 32px;
+            border: 1px dashed #cbd5e1;
             text-align: center;
         }
+
+        .time-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            margin-bottom: 4px;
+            font-weight: 700;
+        }
+
         .time-value {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
-            margin: 8px 0;
+            color: #0f172a;
+            margin-bottom: 16px;
         }
-        .old-time {
-            color: #666;
+
+        .time-value.old {
             text-decoration: line-through;
+            color: #94a3b8;
         }
-        .new-time {
-            color: #059669;
+
+        .time-divider {
+            color: #94a3b8;
+            font-size: 12px;
+            margin: 8px 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
-        .arrow {
-            font-size: 24px;
-            color: #8B5CF6;
-            margin: 10px 0;
-        }
-        .booking-details {
-            background-color: #f8f5ff;
+
+        .details-grid {
+            margin-bottom: 32px;
+            border: 1px solid #e2e8f0;
             border-radius: 8px;
-            padding: 20px;
-            margin: 24px 0;
+            overflow: hidden;
         }
+
         .detail-row {
-            padding: 8px 0;
-            border-bottom: 1px solid #e8e0f7;
+            display: flex;
+            justify-content: space-between;
+            padding: 16px;
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
         }
+
         .detail-row:last-child {
             border-bottom: none;
         }
+
         .detail-label {
-            color: #666;
             font-size: 14px;
+            color: #64748b;
+            font-weight: 500;
         }
+
         .detail-value {
+            font-size: 14px;
             font-weight: 600;
-            color: #333;
+            color: #0f172a;
+            text-align: right;
         }
-        .shop-info {
-            background-color: #f0f0f0;
+
+        .shop-section {
+            padding: 24px;
+            background: #f8fafc;
             border-radius: 8px;
-            padding: 16px;
-            margin-top: 16px;
+            margin-bottom: 32px;
+            border: 1px solid #e2e8f0;
         }
+
+        .shop-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .shop-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .shop-meta {
+            font-size: 14px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+
         .footer {
             text-align: center;
-            padding-top: 24px;
-            border-top: 1px solid #eee;
-            margin-top: 24px;
-            color: #888;
-            font-size: 12px;
+            padding: 24px 40px;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .footer a {
+            color: #64748b;
+            text-decoration: none;
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
-            <div class="logo">✨ BeautyDrop</div>
-            <div class="reschedule-icon">🔄</div>
-            <h1>Booking Rescheduled</h1>
+            <div class="logo">BeautyDrop</div>
+            <div class="status-badge">Updated</div>
+            <h1>Rescheduled</h1>
         </div>
-        
-        <p>Hi {{ recipient_name }},</p>
-        
-        {% if is_customer %}
-        <p>Your booking at <strong>{{ shop_name }}</strong> has been rescheduled.</p>
-        {% elif is_staff %}
-        <p>An appointment has been rescheduled.</p>
-        {% elif is_owner %}
-        <p>A booking at your shop has been rescheduled.</p>
-        {% endif %}
-        
-        <div class="time-change">
-            <div class="time-value old-time">{{ old_datetime|date:"M j, Y" }} at {{ old_datetime|time:"g:i A" }}</div>
-            <div class="arrow">↓</div>
-            <div class="time-value new-time">{{ booking_datetime|date:"M j, Y" }} at {{ booking_datetime|time:"g:i A" }}</div>
+
+        <div class="content">
+            <p>Hi {{ recipient_name }}, your appointment time has been updated.</p>
+
+            <div class="time-change-box">
+                <div class="time-label">Previous Time</div>
+                <div class="time-value old">{{ old_datetime|date:"M j, Y" }} • {{ old_datetime|time:"g:i A" }}</div>
+
+                <div class="time-divider">Changed To</div>
+
+                <div class="time-label" style="color: #2563eb;">New Time</div>
+                <div class="time-value" style="margin-bottom: 0;">{{ booking_datetime|date:"M j, Y" }} • {{
+                    booking_datetime|time:"g:i A" }}</div>
+            </div>
+
+            <div class="details-grid">
+                <div class="detail-row">
+                    <span class="detail-label">Service</span>
+                    <span class="detail-value">{{ service_name }}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Staff</span>
+                    <span class="detail-value">{{ staff_name }}</span>
+                </div>
+            </div>
+
+            <div class="shop-section">
+                <div class="shop-label">Location</div>
+                <span class="shop-name">{{ shop_name }}</span>
+                <div class="shop-meta">
+                    {{ shop_address }}<br>
+                    {{ shop_phone }}
+                </div>
+            </div>
         </div>
-        
-        <div class="booking-details">
-            <div class="detail-row">
-                <span class="detail-label">📅 New Date & Time</span><br>
-                <span class="detail-value">{{ booking_datetime|date:"l, F j, Y" }} at {{ booking_datetime|time:"g:i A" }}</span>
-            </div>
-            <div class="detail-row">
-                <span class="detail-label">💇 Service</span><br>
-                <span class="detail-value">{{ service_name }}</span>
-            </div>
-            <div class="detail-row">
-                <span class="detail-label">👤 Staff</span><br>
-                <span class="detail-value">{{ staff_name }}</span>
-            </div>
-            {% if is_staff or is_owner %}
-            <div class="detail-row">
-                <span class="detail-label">👤 Customer</span><br>
-                <span class="detail-value">{{ customer_name }}</span>
-            </div>
-            {% endif %}
-        </div>
-        
-        <div class="shop-info">
-            <strong>📍 {{ shop_name }}</strong><br>
-            {{ shop_address }}<br>
-            📞 {{ shop_phone }}
-        </div>
-        
+
         <div class="footer">
-            <p>This email was sent by BeautyDrop</p>
-            <p>© {{ current_year }} BeautyDrop. All rights reserved.</p>
-            <p><a href="#">Unsubscribe</a> | <a href="#">Manage Preferences</a></p>
+            <p style="margin: 0;">© {{ current_year }} BeautyDrop. All rights reserved.</p>
         </div>
     </div>
 </body>
+
 </html>
