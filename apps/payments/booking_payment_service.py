@@ -22,6 +22,12 @@ from apps.core.utils.constants import (
     BOOKING_PAYMENT_REFUNDED, BOOKING_PAYMENT_NOT_REQUIRED,
     BOOKING_STATUS_CONFIRMED
 )
+# Check if notifications app is installed before importing
+try:
+    from apps.notifications.services.fcm_service import FCMService
+    NOTIFICATIONS_AVAILABLE = True
+except ImportError:
+    NOTIFICATIONS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +230,34 @@ class BookingPaymentService:
         
         logger.info(f"Booking {booking.id} confirmed after payment {payment_intent_id}")
         
-        # TODO: Send confirmation notification to customer
+        # Send confirmation notification
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                # Notify Customer
+                FCMService.send_booking_notification(
+                    user=booking.customer.user,
+                    title="Booking Confirmed!",
+                    body=f"Your booking at {booking.shop.name} is confirmed. Payment of ${booking_payment.amount} received.",
+                    data={
+                        'type': 'booking_confirmed',
+                        'booking_id': str(booking.id),
+                        'shop_id': str(booking.shop.id)
+                    }
+                )
+                
+                # Notify Shop Owner
+                shop_owner = booking.shop.client.user
+                FCMService.send_booking_notification(
+                    user=shop_owner,
+                    title="New Booking Confirmed",
+                    body=f"New booking confirmed! ${booking_payment.amount} deposit received.",
+                    data={
+                        'type': 'new_booking',
+                        'booking_id': str(booking.id)
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Failed to send confirmation notifications: {str(e)}")
         
         return {
             'success': True,

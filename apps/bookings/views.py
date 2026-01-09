@@ -175,19 +175,14 @@ class BookingViewSet(viewsets.GenericViewSet,
         description="""
         Create a booking without requiring a pre-created TimeSlot.
         
-        Uses dynamic availability to validate the slot and create the booking.
-        This is the recommended endpoint for new booking implementations.
-        
-        The system will:
-        1. Validate the slot is within shop hours
-        2. Check staff availability for the requested time
-        3. Auto-assign or use specified staff member
-        4. Create the booking directly
+        Supports both Service and Deal bookings.
+        - **Service**: Requires staff assignment and availability check.
+        - **Deal**: Only requires shop capacity check (no staff).
         """,
         request=DynamicBookingCreateSerializer,
         examples=[
             OpenApiExample(
-                'Dynamic Booking Example',
+                'Service Booking',
                 value={
                     'service_id': 'd241ec69-f739-4040-94a0-b46286742dbe',
                     'date': '2024-12-10',
@@ -195,7 +190,19 @@ class BookingViewSet(viewsets.GenericViewSet,
                     'staff_member_id': 'b9743cc7-1364-4a32-a3b7-730a02365f00',
                     'notes': 'Please call me when you arrive'
                 },
-                request_only=True
+                request_only=True,
+                description="Book a specific service with optional staff member"
+            ),
+            OpenApiExample(
+                'Deal Booking',
+                value={
+                    'deal_id': 'a1b2c3d4-e5f6-7890-1234-567890abcdef',
+                    'date': '2024-12-15',
+                    'start_time': '14:30',
+                    'notes': 'Black Friday Special'
+                },
+                request_only=True,
+                description="Book a deal/package (no staff selection needed)"
             )
         ],
         responses={
@@ -224,120 +231,187 @@ class BookingViewSet(viewsets.GenericViewSet,
         serializer = DynamicBookingCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        service = serializer.validated_data['service']
         booking_datetime = serializer.validated_data['booking_datetime']
         target_date = serializer.validated_data['date']
-        staff_member_id = serializer.validated_data.get('staff_member_id')
         
-        # Use AvailabilityService to check if this slot is actually available
-        from apps.schedules.services.availability import AvailabilityService
-        from apps.staff.models import StaffMember, StaffService
-        from datetime import timedelta
-        
-        availability_service = AvailabilityService(
-            service_id=service.id,
-            target_date=target_date,
-            buffer_minutes=15
-        )
-        
-        # Check if shop is open
-        if not availability_service.is_shop_open():
-            return Response(
-                {'error': 'Shop is closed on this date'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get available slots and check if requested time is valid
-        available_slots = availability_service.get_available_slots()
-        
-        # Check if no slots are available due to no staff assigned
-        if not available_slots:
-            eligible_staff = availability_service._get_eligible_staff()
-            if not eligible_staff.exists():
-                return Response(
-                    {'error': 'No staff available for this service. Please assign staff members to this service first.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            # Otherwise, shop is closed or all slots are booked
-            return Response(
-                {'error': 'No available slots on this date. The shop may be closed or fully booked.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Convert booking_datetime to shop's timezone for accurate comparison
-        # AvailabilityService returns slots in shop's timezone
-        import pytz
-        try:
-            shop_tz = pytz.timezone(service.shop.timezone)
-        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
-            shop_tz = pytz.UTC
-        
-        booking_datetime_shop_tz = booking_datetime.astimezone(shop_tz)
-        
-        # Find the slot that matches the requested time
-        matching_slot = None
-        for slot in available_slots:
-            # Both should now be in shop timezone for comparison
-            slot_time_normalized = slot.start_time.astimezone(shop_tz)
-            if slot_time_normalized == booking_datetime_shop_tz:
-                matching_slot = slot
-                break
-        
-        if not matching_slot:
-            # Provide helpful debug info
-            available_times = [s.start_time.astimezone(shop_tz).strftime('%H:%M') for s in available_slots[:5]]
-            return Response(
-                {
-                    'error': 'This time slot is not available. Please check available slots first.',
-                    'requested_time': booking_datetime_shop_tz.strftime('%Y-%m-%d %H:%M %Z'),
-                    'sample_available_times': available_times
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Handle staff member assignment
+        # Common variables
+        booking_service = None
+        booking_deal = None
         staff_member = None
+        total_price = 0
+        duration_minutes = 0
+        shop = serializer.validated_data['request_shop']
         
-        if staff_member_id:
-            # User selected specific staff - verify they're in available_staff_ids
-            if staff_member_id not in matching_slot.available_staff_ids:
+        # ===========================
+        # DEAL BOOKING LOGIC
+        # ===========================
+        if 'deal' in serializer.validated_data:
+            booking_deal = serializer.validated_data['deal']
+            total_price = booking_deal.price
+            duration_minutes = booking_deal.duration_minutes
+            
+            # Check capacity
+            from apps.schedules.models import ShopSchedule
+            from datetime import timedelta, datetime
+            import pytz
+            
+            # Get shop timezone
+            try:
+                shop_tz = pytz.timezone(shop.timezone)
+            except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+                shop_tz = pytz.UTC
+            
+            # Check shop schedule
+            day_name = target_date.strftime('%A').lower()
+            try:
+                schedule = ShopSchedule.objects.get(shop=shop, day_of_week=day_name)
+            except ShopSchedule.DoesNotExist:
                 return Response(
-                    {'error': 'Selected staff member is not available at this time'},
+                    {'error': 'Shop has no schedule for this day'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            staff_member = StaffMember.objects.get(id=staff_member_id)
-        else:
-            # Auto-assign from available staff
-            if matching_slot.available_staff_ids:
-                available_staff = StaffMember.objects.filter(
-                    id__in=matching_slot.available_staff_ids
+            
+            if not schedule.is_active:
+                return Response(
+                    {'error': 'Shop is closed on this day'},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
-                
-                # Try primary staff for this service first
-                primary = StaffService.objects.filter(
-                    service=service,
-                    is_primary=True,
-                    staff_member__in=available_staff
-                ).first()
-                if primary:
-                    staff_member = primary.staff_member
-                else:
-                    # Any available staff
-                    staff_member = available_staff.first()
+            
+            # Check time is within shop hours
+            shop_open = shop_tz.localize(datetime.combine(target_date, schedule.start_time))
+            shop_close = shop_tz.localize(datetime.combine(target_date, schedule.end_time))
+            slot_end = booking_datetime + timedelta(minutes=duration_minutes)
+            
+            if booking_datetime < shop_open or slot_end > shop_close:
+                return Response(
+                    {'error': 'Time is outside shop hours'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check capacity at this time
+            max_concurrent = shop.max_concurrent_deal_bookings
+            existing_bookings = Booking.objects.filter(
+                shop=shop,
+                deal__isnull=False,
+                status__in=['pending', 'confirmed'],
+                booking_datetime__date=target_date
+            )
+            
+            # Count overlaps
+            overlapping = 0
+            for existing in existing_bookings:
+                existing_end = existing.booking_datetime + timedelta(minutes=existing.duration_minutes)
+                if existing.booking_datetime < slot_end and existing_end > booking_datetime:
+                    overlapping += 1
+            
+            if overlapping >= max_concurrent:
+                return Response(
+                    {'error': 'Maximum capacity reached for deals at this time'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # ===========================
+        # SERVICE BOOKING LOGIC
+        # ===========================
+        else:
+            booking_service = serializer.validated_data['service']
+            total_price = booking_service.price
+            duration_minutes = booking_service.duration_minutes
+            staff_member_id = serializer.validated_data.get('staff_member_id')
+            
+            # Use AvailabilityService to check if this slot is actually available
+            from apps.schedules.services.availability import AvailabilityService
+            from apps.staff.models import StaffMember, StaffService
+            
+            availability_service = AvailabilityService(
+                service_id=booking_service.id,
+                target_date=target_date,
+                buffer_minutes=15
+            )
+            
+            if not availability_service.is_shop_open():
+                return Response(
+                    {'error': 'Shop is closed on this date'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            available_slots = availability_service.get_available_slots()
+            
+            if not available_slots:
+                # Provide specific error messages
+                eligible_staff = availability_service._get_eligible_staff()
+                if not eligible_staff.exists():
+                    return Response(
+                        {'error': 'No staff available for this service. Please assign staff members.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                return Response(
+                    {'error': 'No available slots on this date. Shop closed or fully booked.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Convert booking_datetime to shop's timezone
+            import pytz
+            try:
+                shop_tz = pytz.timezone(shop.timezone)
+            except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+                shop_tz = pytz.UTC
+            
+            booking_datetime_shop_tz = booking_datetime.astimezone(shop_tz)
+            
+            # Verify slot match
+            matching_slot = None
+            for slot in available_slots:
+                slot_time_normalized = slot.start_time.astimezone(shop_tz)
+                if slot_time_normalized == booking_datetime_shop_tz:
+                    matching_slot = slot
+                    break
+            
+            if not matching_slot:
+                available_times = [s.start_time.astimezone(shop_tz).strftime('%H:%M') for s in available_slots[:5]]
+                return Response(
+                    {
+                        'error': 'This time slot is not available.',
+                        'requested_time': booking_datetime_shop_tz.strftime('%Y-%m-%d %H:%M %Z'),
+                        'sample_available_times': available_times
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Handle staff assignment
+            if staff_member_id:
+                if staff_member_id not in matching_slot.available_staff_ids:
+                    return Response(
+                        {'error': 'Selected staff member is not available at this time'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                staff_member = StaffMember.objects.get(id=staff_member_id)
+            else:
+                # Auto-assign
+                if matching_slot.available_staff_ids:
+                    available_staff = StaffMember.objects.filter(
+                        id__in=matching_slot.available_staff_ids
+                    )
+                    primary = StaffService.objects.filter(
+                        service=booking_service,
+                        is_primary=True,
+                        staff_member__in=available_staff
+                    ).first()
+                    staff_member = primary.staff_member if primary else available_staff.first()
         
-        # Calculate end time
-        booking_end = booking_datetime + timedelta(minutes=service.duration_minutes)
-        
-        # Create booking (no TimeSlot needed)
+        # ===========================
+        # CREATE BOOKING
+        # ===========================
         booking = Booking.objects.create(
             customer=customer,
-            shop=service.shop,
-            service=service,
-            time_slot=None,  # Dynamic booking - no TimeSlot
+            shop=shop,
+            service=booking_service,
+            deal=booking_deal,
+            time_slot=None,
             staff_member=staff_member,
             booking_datetime=booking_datetime,
-            duration_minutes=service.duration_minutes,
-            total_price=service.price,
+            duration_minutes=duration_minutes,
+            total_price=total_price,
             notes=serializer.validated_data.get('notes', ''),
             status='pending'
         )
@@ -349,7 +423,6 @@ class BookingViewSet(viewsets.GenericViewSet,
         # Build response
         response_data = BookingSerializer(booking).data
         
-        # Add payment info to response
         if payment_result.get('payment_required'):
             response_data['payment'] = {
                 'required': True,

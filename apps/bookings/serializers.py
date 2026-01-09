@@ -294,11 +294,21 @@ class DynamicBookingCreateSerializer(serializers.Serializer):
     """
     Input serializer for creating bookings without pre-created TimeSlots.
     
-    Uses dynamic availability to validate and create bookings directly
-    from a service_id, date, and start_time.
+    Supports both Service bookings and Deal bookings.
+    - Service: Requires staff availability check
+    - Deal: Requires shop capacity check
+    
+    Uses dynamic availability to validate and create bookings directly.
     """
     service_id = serializers.UUIDField(
-        help_text="UUID of the service to book"
+        required=False,
+        allow_null=True,
+        help_text="UUID of the service to book (Required if no deal_id)"
+    )
+    deal_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="UUID of the deal to book (Required if no service_id)"
     )
     date = serializers.DateField(
         help_text="Date of the booking (YYYY-MM-DD)"
@@ -309,7 +319,7 @@ class DynamicBookingCreateSerializer(serializers.Serializer):
     staff_member_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="Optional: Select a specific staff member"
+        help_text="Optional: Select a specific staff member (Service bookings only)"
     )
     notes = serializers.CharField(
         required=False,
@@ -324,62 +334,110 @@ class DynamicBookingCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Date cannot be in the past")
         return value
     
-    def validate_service_id(self, value):
-        """Validate service exists and is active."""
-        from apps.services.models import Service
-        try:
-            Service.objects.get(id=value, is_active=True)
-        except Service.DoesNotExist:
-            raise serializers.ValidationError("Service not found or not active")
-        return value
-    
     def validate(self, data):
-        from apps.services.models import Service
+        service_id = data.get('service_id')
+        deal_id = data.get('deal_id')
+        
+        if not service_id and not deal_id:
+            raise serializers.ValidationError("Either service_id or deal_id must be provided")
+        
+        if service_id and deal_id:
+            raise serializers.ValidationError("Cannot book both service and deal at the same time")
+            
+        from apps.services.models import Service, Deal
         from apps.staff.models import StaffMember
         from datetime import datetime, timedelta
         import pytz
         
-        service = Service.objects.select_related('shop').get(id=data['service_id'])
+        booking_datetime = None
+        shop = None
+        duration_minutes = 0
         
-        # Get shop's timezone
-        try:
-            shop_tz = pytz.timezone(service.shop.timezone)
-        except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
-            shop_tz = pytz.UTC
-        
-        # Create datetime from date and time, localized to shop's timezone
-        # The date and time from request are interpreted as shop's local time
-        naive_datetime = datetime.combine(data['date'], data['start_time'])
-        booking_datetime = shop_tz.localize(naive_datetime)
-        
-        # Check if booking time is in the past (compare in UTC)
-        buffer_time = timezone.now() + timedelta(minutes=15)
-        if booking_datetime < buffer_time:
-            raise serializers.ValidationError(
-                "Booking time must be at least 15 minutes from now"
-            )
-        
-        # Validate staff member if provided
-        if data.get('staff_member_id'):
+        # ===========================
+        # DEAL VALIDATION
+        # ===========================
+        if deal_id:
             try:
-                staff_member = StaffMember.objects.get(
-                    id=data['staff_member_id'],
-                    shop=service.shop,
-                    is_active=True
-                )
-                # Verify staff can provide this service (if they have service assignments)
-                staff_services = staff_member.services.all()
-                if staff_services.exists() and not staff_services.filter(id=service.id).exists():
-                    raise serializers.ValidationError(
-                        "Selected staff member cannot provide this service"
-                    )
-            except StaffMember.DoesNotExist:
+                deal = Deal.objects.select_related('shop').get(id=deal_id, is_active=True)
+            except Deal.DoesNotExist:
+                raise serializers.ValidationError({"deal_id": "Deal not found or not active"})
+            
+            shop = deal.shop
+            duration_minutes = deal.duration_minutes
+            
+            # Helper to get shop timezone
+            try:
+                shop_tz = pytz.timezone(shop.timezone)
+            except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+                shop_tz = pytz.UTC
+            
+            # Calculate timestamps
+            naive_datetime = datetime.combine(data['date'], data['start_time'])
+            booking_datetime = shop_tz.localize(naive_datetime)
+            
+            # Check for past time
+            buffer_time = timezone.now() + timedelta(minutes=15)
+            if booking_datetime < buffer_time:
                 raise serializers.ValidationError(
-                    "Staff member not found or not available at this shop"
+                    "Booking time must be at least 15 minutes from now"
                 )
+            
+            data['deal'] = deal
         
+        # ===========================
+        # SERVICE VALIDATION
+        # ===========================
+        else:  # service_id
+            try:
+                service = Service.objects.select_related('shop').get(id=service_id, is_active=True)
+            except Service.DoesNotExist:
+                raise serializers.ValidationError({"service_id": "Service not found or not active"})
+            
+            shop = service.shop
+            duration_minutes = service.duration_minutes
+            
+            # Helper to get shop timezone
+            try:
+                shop_tz = pytz.timezone(shop.timezone)
+            except (pytz.exceptions.UnknownTimeZoneError, AttributeError):
+                shop_tz = pytz.UTC
+            
+            # Calculate timestamps
+            naive_datetime = datetime.combine(data['date'], data['start_time'])
+            booking_datetime = shop_tz.localize(naive_datetime)
+            
+            # Check for past time
+            buffer_time = timezone.now() + timedelta(minutes=15)
+            if booking_datetime < buffer_time:
+                raise serializers.ValidationError(
+                    "Booking time must be at least 15 minutes from now"
+                )
+            
+            # Validate staff member if provided
+            if data.get('staff_member_id'):
+                try:
+                    staff_member = StaffMember.objects.get(
+                        id=data['staff_member_id'],
+                        shop=shop,
+                        is_active=True
+                    )
+                    # Verify staff can provide this service
+                    staff_services = staff_member.services.all()
+                    if staff_services.exists() and not staff_services.filter(id=service.id).exists():
+                        raise serializers.ValidationError(
+                            {"staff_member_id": "Selected staff member cannot provide this service"}
+                        )
+                except StaffMember.DoesNotExist:
+                    raise serializers.ValidationError(
+                        {"staff_member_id": "Staff member not found or not available at this shop"}
+                    )
+            
+            data['service'] = service
+            
+        # Common data setup
         data['booking_datetime'] = booking_datetime
-        data['service'] = service
+        data['request_shop'] = shop  # Store shop for view use
+        
         return data
 
 
