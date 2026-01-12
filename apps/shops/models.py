@@ -35,7 +35,10 @@ class Shop(BaseModel):
     
     # Media
     logo_url = models.URLField(blank=True)
-    cover_image_url = models.URLField(blank=True)
+    cover_image_url = models.TextField(
+        blank=True,
+        help_text='Cover image URL or base64 encoded image. Accepts any string format until GCP bucket is implemented.'
+    )
     
     # Timezone
     timezone = models.CharField(

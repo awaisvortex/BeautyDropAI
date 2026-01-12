@@ -472,3 +472,189 @@ class DealBookingCreateSerializer(serializers.Serializer):
         data['deal'] = deal
         data['duration_minutes'] = deal.duration_minutes
         return data
+
+
+# ============================================
+# Payment Response Serializers
+# ============================================
+
+class PaymentInfoSerializer(serializers.Serializer):
+    """
+    Payment information returned with booking creation.
+    
+    Included in the booking response to indicate whether payment is required
+    and provide the client_secret for Stripe.js integration.
+    """
+    required = serializers.BooleanField(
+        help_text="Whether advance payment is required for this booking"
+    )
+    message = serializers.CharField(
+        help_text="Message about payment status or requirements"
+    )
+    # Fields below are only present when payment is required
+    client_secret = serializers.CharField(
+        required=False,
+        help_text="Stripe PaymentIntent client secret for frontend payment processing"
+    )
+    payment_intent_id = serializers.CharField(
+        required=False,
+        help_text="Stripe PaymentIntent ID"
+    )
+    amount = serializers.FloatField(
+        required=False,
+        help_text="Advance payment amount in dollars"
+    )
+    amount_cents = serializers.IntegerField(
+        required=False,
+        help_text="Advance payment amount in cents"
+    )
+    currency = serializers.CharField(
+        required=False,
+        help_text="Payment currency (e.g., 'usd')"
+    )
+
+
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Booking with Payment Required',
+            value={
+                'id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                'customer': 'cust-uuid',
+                'customer_name': 'John Doe',
+                'customer_email': 'john@example.com',
+                'shop': 'shop-uuid',
+                'shop_name': 'Elegant Salon',
+                'service': 'service-uuid',
+                'service_name': 'Haircut & Style',
+                'service_price': '50.00',
+                'deal': None,
+                'deal_name': None,
+                'staff_member': 'staff-uuid',
+                'staff_member_name': 'Jane Smith',
+                'booking_datetime': '2024-12-10T10:00:00Z',
+                'duration_minutes': 60,
+                'status': 'pending',
+                'payment_status': 'pending',
+                'total_price': '50.00',
+                'notes': 'Please call when you arrive',
+                'is_deal_booking': False,
+                'created_at': '2024-12-01T14:30:00Z',
+                'payment': {
+                    'required': True,
+                    'client_secret': 'pi_3Abc123XYz_secret_def456',
+                    'payment_intent_id': 'pi_3Abc123XYz',
+                    'amount': 5.0,
+                    'amount_cents': 500,
+                    'currency': 'usd',
+                    'message': 'Please complete payment to confirm booking'
+                }
+            },
+            response_only=True
+        ),
+        OpenApiExample(
+            'Booking without Payment Required',
+            value={
+                'id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                'customer': 'cust-uuid',
+                'customer_name': 'John Doe',
+                'customer_email': 'john@example.com',
+                'shop': 'shop-uuid',
+                'shop_name': 'Elegant Salon',
+                'service': 'service-uuid',
+                'service_name': 'Haircut & Style',
+                'service_price': '50.00',
+                'deal': None,
+                'deal_name': None,
+                'staff_member': 'staff-uuid',
+                'staff_member_name': 'Jane Smith',
+                'booking_datetime': '2024-12-10T10:00:00Z',
+                'duration_minutes': 60,
+                'status': 'confirmed',
+                'payment_status': 'not_required',
+                'total_price': '50.00',
+                'notes': 'Please call when you arrive',
+                'is_deal_booking': False,
+                'created_at': '2024-12-01T14:30:00Z',
+                'payment': {
+                    'required': False,
+                    'message': 'Shop payment setup incomplete - booking created without deposit'
+                }
+            },
+            response_only=True
+        ),
+        OpenApiExample(
+            'Deal Booking with Payment',
+            value={
+                'id': 'deal-booking-uuid',
+                'customer': 'cust-uuid',
+                'customer_name': 'John Doe',
+                'shop': 'shop-uuid',
+                'shop_name': 'Spa Paradise',
+                'service': None,
+                'service_name': None,
+                'deal': 'deal-uuid',
+                'deal_name': 'Spa Package Deluxe',
+                'deal_price': '120.00',
+                'deal_items': ['Full body massage', 'Facial treatment', 'Aromatherapy'],
+                'staff_member': None,
+                'staff_member_name': None,
+                'booking_datetime': '2024-12-15T14:00:00Z',
+                'duration_minutes': 90,
+                'status': 'pending',
+                'payment_status': 'pending',
+                'total_price': '120.00',
+                'notes': 'Birthday celebration',
+                'is_deal_booking': True,
+                'created_at': '2024-12-01T15:00:00Z',
+                'payment': {
+                    'required': True,
+                    'client_secret': 'pi_7Def456ABC_secret_ghi789',
+                    'payment_intent_id': 'pi_7Def456ABC',
+                    'amount': 12.0,
+                    'amount_cents': 1200,
+                    'currency': 'usd',
+                    'message': 'Please complete payment to confirm booking'
+                }
+            },
+            response_only=True
+        )
+    ]
+)
+class BookingWithPaymentResponseSerializer(serializers.Serializer):
+    """
+    Complete booking response including payment information.
+    
+    This serializer documents the full response structure returned by
+    booking creation endpoints when they include payment details.
+    """
+    # Booking fields (from BookingSerializer)
+    id = serializers.UUIDField(read_only=True)
+    customer = serializers.UUIDField(read_only=True)
+    customer_name = serializers.CharField(read_only=True)
+    customer_email = serializers.EmailField(read_only=True)
+    shop = serializers.UUIDField(read_only=True)
+    shop_name = serializers.CharField(read_only=True)
+    service = serializers.UUIDField(read_only=True, allow_null=True)
+    service_name = serializers.CharField(read_only=True, allow_null=True)
+    service_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, allow_null=True)
+    deal = serializers.UUIDField(read_only=True, allow_null=True)
+    deal_name = serializers.CharField(read_only=True, allow_null=True)
+    deal_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, allow_null=True)
+    deal_items = serializers.JSONField(read_only=True, default=list)
+    staff_member = serializers.UUIDField(read_only=True, allow_null=True)
+    staff_member_name = serializers.CharField(read_only=True, allow_null=True)
+    booking_datetime = serializers.DateTimeField(read_only=True)
+    duration_minutes = serializers.IntegerField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    payment_status = serializers.CharField(read_only=True)
+    total_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    notes = serializers.CharField(read_only=True)
+    is_deal_booking = serializers.BooleanField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+    
+    # Payment information (added by view)
+    payment = PaymentInfoSerializer(
+        help_text="Payment information for this booking"
+    )

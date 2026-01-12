@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.db.models import Sum, Q
 
 from apps.core.permissions import IsCustomer, IsClient, IsBookingOwner
+from apps.payments.booking_payment_service import booking_payment_service
 from .models import Booking
 from .serializers import (
     BookingSerializer,
@@ -24,7 +25,9 @@ from .serializers import (
     OwnerRescheduleResponseSerializer,
     DealSlotSerializer,
     DealAvailabilitySerializer,
-    DealBookingCreateSerializer
+    DealBookingCreateSerializer,
+    BookingWithPaymentResponseSerializer,
+    PaymentInfoSerializer
 )
 
 
@@ -182,7 +185,19 @@ class BookingViewSet(viewsets.GenericViewSet,
         1. Validate the slot is within shop hours
         2. Check staff availability for the requested time
         3. Auto-assign or use specified staff member
-        4. Create the booking directly
+        4. Create the booking with 'pending' status
+        5. Create a payment intent if Stripe Connect is enabled
+        
+        **Payment Flow:**
+        - If shop owner has Stripe Connect enabled: Returns `client_secret` for payment
+        - If shop doesn't have Stripe Connect: Booking is auto-confirmed
+        - If advance payment is disabled: Booking is auto-confirmed
+        
+        **Response includes:**
+        - Booking details
+        - Payment object with either:
+          - `client_secret` for Stripe.js (when payment required)
+          - Confirmation message (when no payment required)
         """,
         request=DynamicBookingCreateSerializer,
         examples=[
@@ -196,10 +211,45 @@ class BookingViewSet(viewsets.GenericViewSet,
                     'notes': 'Please call me when you arrive'
                 },
                 request_only=True
+            ),
+            OpenApiExample(
+                'Response with Payment Required',
+                value={
+                    'id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                    'status': 'pending',
+                    'service': {'id': 'd241ec69...', 'name': 'Haircut'},
+                    'booking_datetime': '2024-12-10T10:00:00Z',
+                    'total_price': '50.00',
+                    'payment': {
+                        'required': True,
+                        'client_secret': 'pi_xxx_secret_yyy',
+                        'payment_intent_id': 'pi_xxx',
+                        'amount': 5.0,
+                        'amount_cents': 500,
+                        'currency': 'usd',
+                        'message': 'Please complete payment to confirm booking'
+                    }
+                },
+                response_only=True
+            ),
+            OpenApiExample(
+                'Response without Payment Required',
+                value={
+                    'id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                    'status': 'confirmed',
+                    'service': {'id': 'd241ec69...', 'name': 'Haircut'},
+                    'booking_datetime': '2024-12-10T10:00:00Z',
+                    'total_price': '50.00',
+                    'payment': {
+                        'required': False,
+                        'message': 'Shop payment setup incomplete - booking created without deposit'
+                    }
+                },
+                response_only=True
             )
         ],
         responses={
-            201: BookingSerializer,
+            201: BookingWithPaymentResponseSerializer,
             400: OpenApiResponse(description="Bad Request - Slot not available or invalid data"),
             403: OpenApiResponse(description="Forbidden - Only customers can create bookings")
         },
@@ -329,7 +379,7 @@ class BookingViewSet(viewsets.GenericViewSet,
         booking_end = booking_datetime + timedelta(minutes=service.duration_minutes)
         
         # Create booking (no TimeSlot needed)
-        # Status set to 'confirmed' - no advance payment required
+        # Initial status is 'pending' - will be confirmed after payment (if required)
         booking = Booking.objects.create(
             customer=customer,
             shop=service.shop,
@@ -340,16 +390,32 @@ class BookingViewSet(viewsets.GenericViewSet,
             duration_minutes=service.duration_minutes,
             total_price=service.price,
             notes=serializer.validated_data.get('notes', ''),
-            status='confirmed',
-            payment_status='not_required'
+            status='pending'
         )
+        
+        # Attempt to create advance payment
+        payment_result = booking_payment_service.create_advance_payment(booking)
         
         # Build response
         response_data = BookingSerializer(booking).data
-        response_data['payment'] = {
-            'required': False,
-            'message': 'No advance payment required'
-        }
+        
+        if payment_result.get('payment_required'):
+            # Payment is required - return client_secret for Stripe.js
+            response_data['payment'] = {
+                'required': True,
+                'client_secret': payment_result['client_secret'],
+                'payment_intent_id': payment_result['payment_intent_id'],
+                'amount': float(payment_result['amount']),
+                'amount_cents': payment_result['amount_cents'],
+                'currency': payment_result['currency'],
+                'message': 'Please complete payment to confirm booking'
+            }
+        else:
+            # Payment not required - booking auto-confirmed
+            response_data['payment'] = {
+                'required': False,
+                'message': payment_result.get('message', 'No advance payment required')
+            }
         
         return Response(
             response_data,
@@ -1159,34 +1225,70 @@ class BookingViewSet(viewsets.GenericViewSet,
         })
     
     @extend_schema(
-        summary="Book a deal (no staff required)",
+        summary="Dynamic booking for deals",
         description="""
-        Create a booking for a deal/package.
+        Create a deal booking without staff assignment.
         
-        **Key differences from service booking:**
-        - No staff member is assigned
-        - Based on shop capacity (max_concurrent_deal_bookings)
-        - Duration is from deal.duration_minutes
+        Deal bookings are capacity-based (no staff required) and use the shop's
+        max_concurrent_deal_bookings setting.
+        
+        The system will:
+        1. Validate the slot is within shop hours
+        2. Check capacity at the requested time
+        3. Create the booking with 'pending' status
+        4. Create a payment intent if Stripe Connect is enabled
+        
+        **Payment Flow:**
+        - If shop owner has Stripe Connect enabled: Returns `client_secret` for payment
+        - If shop doesn't have Stripe Connect: Booking is auto-confirmed
+        - If advance payment is disabled: Booking is auto-confirmed
+        
+        **Response includes:**
+        - Booking details (with deal information)
+        - Payment object with either:
+          - `client_secret` for Stripe.js (when payment required)
+          - Confirmation message (when no payment required)
         """,
         request=DealBookingCreateSerializer,
         examples=[
             OpenApiExample(
-                'Book a Deal',
+                'Deal Booking Request',
                 value={
-                    'deal_id': 'd241ec69-f739-4040-94a0-b46286742dbe',
-                    'date': '2026-01-10',
-                    'start_time': '10:00',
-                    'notes': 'Looking forward to the deal!'
+                    'deal_id': 'f9e8d7c6b5a4-3210-fedc-ba98-76543210fedc',
+                    'date': '2024-12-15',
+                    'start_time': '14:00',
+                    'duration_minutes': 90,
+                    'notes': 'Birthday celebration'
                 },
                 request_only=True
+            ),
+            OpenApiExample(
+                'Response with Payment Required',
+                value={
+                    'id': 'booking123',
+                    'status': 'pending',
+                    'deal': {'id': 'deal123', 'name': 'Spa Package'},
+                    'booking_datetime': '2024-12-15T14:00:00Z',
+                    'total_price': '120.00',
+                    'payment': {
+                        'required': True,
+                        'client_secret': 'pi_xxx_secret_yyy',
+                        'payment_intent_id': 'pi_xxx',
+                        'amount': 12.0,
+                        'amount_cents': 1200,
+                        'currency': 'usd',
+                        'message': 'Please complete payment to confirm booking'
+                    }
+                },
+                response_only=True
             )
         ],
         responses={
-            201: BookingSerializer,
-            400: OpenApiResponse(description="Bad Request - Slot not available or capacity full"),
+            201: BookingWithPaymentResponseSerializer,
+            400: OpenApiResponse(description="No slots available or invalid data"),
             403: OpenApiResponse(description="Forbidden - Only customers can create bookings")
         },
-        tags=['Deals - Booking']
+        tags=['Bookings - Customer']
     )
     @action(detail=False, methods=['post'], permission_classes=[IsCustomer])
     def dynamic_book_deal(self, request):
@@ -1260,7 +1362,32 @@ class BookingViewSet(viewsets.GenericViewSet,
             status='pending'
         )
         
+        # Attempt to create advance payment
+        payment_result = booking_payment_service.create_advance_payment(booking)
+        
+        # Build response
+        response_data = BookingSerializer(booking).data
+        
+        if payment_result.get('payment_required'):
+            # Payment is required - return client_secret for Stripe.js
+            response_data['payment'] = {
+                'required': True,
+                'client_secret': payment_result['client_secret'],
+                'payment_intent_id': payment_result['payment_intent_id'],
+                'amount': float(payment_result['amount']),
+                'amount_cents': payment_result['amount_cents'],
+                'currency': payment_result['currency'],
+                'message': 'Please complete payment to confirm booking'
+            }
+        else:
+            # Payment not required - booking auto-confirmed
+            response_data['payment'] = {
+                'required': False,
+                'message': payment_result.get('message', 'No advance payment required')
+            }
+        
         return Response(
-            BookingSerializer(booking).data,
+            response_data,
             status=status.HTTP_201_CREATED
         )
+
