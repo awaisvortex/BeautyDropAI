@@ -194,14 +194,18 @@ class CreateBookingTool(BaseTool):
     def _parse_booking_datetime(self, dt_str: str) -> datetime:
         """Parse booking datetime from various formats."""
         from datetime import timedelta
+        import logging
+        logger = logging.getLogger(__name__)
         
         dt_str = dt_str.strip()
+        logger.info(f"Parsing booking datetime from: '{dt_str}'")
         
         # Try ISO format first
         try:
             dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
             if timezone.is_naive(dt):
                 dt = timezone.make_aware(dt)
+            logger.info(f"Parsed as ISO format: {dt}")
             return dt
         except ValueError:
             pass
@@ -210,26 +214,71 @@ class CreateBookingTool(BaseTool):
         today = timezone.now().date()
         current_time = timezone.now()
         
-        # Extract time component (look for patterns like "2pm", "14:00", "2:30 pm")
+        # Extract time component with improved regex
+        # Matches: "2pm", "2 pm", "2:30pm", "14:00", "2:30 PM", "eleven am", etc.
         import re
-        time_pattern = r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)?'
-        time_match = re.search(time_pattern, dt_str.lower())
         
-        if not time_match:
-            raise ValueError(f"Cannot parse time from: {dt_str}")
+        # First, check for written-out times
+        time_words = {
+            'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+            'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+            'eleven': 11, 'twelve': 12
+        }
         
-        hour = int(time_match.group(1))
-        minute = int(time_match.group(2)) if time_match.group(2) else 0
-        am_pm = time_match.group(3)
+        dt_lower = dt_str.lower()
+        hour = None
+        minute = 0
+        am_pm = None
         
+        # Check for word-based time first
+        for word, num in time_words.items():
+            if word in dt_lower:
+                hour = num
+                logger.info(f"Found word-based hour: {word} = {hour}")
+                break
+        
+        # If no word found, use regex for numeric time
+        if hour is None:
+            time_pattern = r'(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?'
+            time_match = re.search(time_pattern, dt_lower)
+            
+            if not time_match:
+                raise ValueError(f"Cannot parse time from: {dt_str}")
+            
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2)) if time_match.group(2) else 0
+            am_pm = time_match.group(3)
+            
+            if am_pm:
+                am_pm = am_pm.replace('.', '').strip()
+        
+        # Check for AM/PM indicators in the string (even if not in regex capture)
+        if am_pm is None:
+            if any(x in dt_lower for x in ['am', 'a.m.', 'morning']):
+                am_pm = 'am'
+            elif any(x in dt_lower for x in ['pm', 'p.m.', 'afternoon', 'evening', 'night']):
+                am_pm = 'pm'
+        
+        logger.info(f"Extracted time: hour={hour}, minute={minute}, am_pm={am_pm}")
+        
+        # Apply AM/PM conversion
         if am_pm == 'pm' and hour < 12:
             hour += 12
+            logger.info(f"Converted PM: hour is now {hour}")
         elif am_pm == 'am' and hour == 12:
             hour = 0
+            logger.info(f"Converted 12 AM to hour 0")
+        
+        # Validation: if no AM/PM specified and hour is ambiguous, log warning
+        if am_pm is None and 1 <= hour <= 11:
+            logger.warning(f"Ambiguous time without AM/PM: {hour}:{minute:02d}. Assuming {hour} means {hour}:00 (based on 24-hour or context)")
+            # For hours 1-11 without AM/PM, we keep as-is but this should ideally be confirmed by the agent
+        
+        # Validate hour is in reasonable range
+        if hour < 0 or hour > 23:
+            raise ValueError(f"Invalid hour: {hour}. Must be 0-23.")
         
         # Extract date component
-        dt_lower = dt_str.lower()
-        
         if 'today' in dt_lower:
             target_date = today
         elif 'tomorrow' in dt_lower:
@@ -265,6 +314,8 @@ class CreateBookingTool(BaseTool):
         booking_dt = timezone.make_aware(
             datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
         )
+        
+        logger.info(f"Final parsed datetime: {booking_dt} ({booking_dt.strftime('%Y-%m-%d %I:%M %p')})")
         
         return booking_dt
     
@@ -396,9 +447,15 @@ class CreateBookingTool(BaseTool):
                 status='pending'
             )
             
+            # Format time for confirmation
+            formatted_time = booking_dt.strftime("%I:%M %p")  # e.g., "11:00 AM"
+            formatted_date = booking_dt.strftime("%B %d, %Y")  # e.g., "January 12, 2026"
+            
+            logger.info(f"Created booking {booking.id} for {formatted_date} at {formatted_time} (24h: {booking_dt.strftime('%H:%M')})")
+            
             return {
                 "success": True,
-                "message": f"Booking confirmed for {service.name} at {shop.name}",
+                "message": f"Perfect! I've booked {service.name} at {shop.name} for {formatted_date} at {formatted_time}.",
                 "booking": {
                     "booking_id": str(booking.id),
                     "shop": shop.name,
@@ -407,6 +464,8 @@ class CreateBookingTool(BaseTool):
                     "service_id": str(service.id),
                     "datetime": booking_dt.isoformat(),
                     "formatted_datetime": booking_dt.strftime("%B %d, %Y at %I:%M %p"),
+                    "formatted_time": formatted_time,
+                    "formatted_date": formatted_date,
                     "price": float(service.price),
                     "status": booking.status,
                     "staff": staff_member.name if staff_member else "To be assigned",

@@ -177,7 +177,7 @@ class RouteToShopTool(BaseTool):
                 "shop_name": shop.name,
                 "shop_city": shop.city,
                 "has_voice_agent": has_voice_agent,
-                "message": f"Connecting you to {shop.name}..."
+                "message": f"Great! Let me connect you to {shop.name}'s assistant who can help you with bookings, availability, and appointments. One moment..."
             }
             
         except Exception as e:
@@ -219,10 +219,12 @@ class RouteToMasterTool(BaseTool):
         }
     
     def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
+        reason = kwargs.get('reason', '')
         return {
             "success": True,
             "action": "route_to_master",
-            "message": "Connecting you back to the main assistant..."
+            "reason": reason,
+            "message": "Sure! Let me transfer you back to the main BeautyDrop assistant. They can help you explore other salons and services..."
         }
 
 
@@ -318,6 +320,41 @@ def get_master_agent_tools() -> List[Dict]:
 
 def execute_master_tool(tool_name: str, args: Dict, user) -> Dict[str, Any]:
     """Execute a master agent tool."""
+    # Block booking-related tools - master agent must route to shop agent
+    BOOKING_TOOLS = [
+        'create_booking', 'create_deal_booking', 'confirm_booking', 
+        'reschedule_booking', 'cancel_booking', 'get_my_bookings',
+        'get_available_slots', 'get_deal_slots'
+    ]
+    
+    # Block shop management tools - master agent is READ-ONLY
+    MANAGEMENT_TOOLS = [
+        'create_service', 'update_service',
+        'create_staff', 'update_staff', 'assign_staff_to_service', 'remove_staff_from_service',
+        'create_holiday', 'delete_holiday', 'update_shop_hours',
+        'reschedule_booking',  # Owner rescheduling
+        'get_shop_bookings',  # Owner viewing their bookings
+        'get_my_shops', 'get_my_staff',  # Owner-specific views
+    ]
+    
+    if tool_name in BOOKING_TOOLS:
+        shop_name = args.get('shop_name', 'the shop')
+        return {
+            "success": False,
+            "error": "Master agent cannot create or manage bookings directly",
+            "message": f"I can't create bookings directly, but I can connect you to {shop_name}'s assistant who can help with that. Would you like me to transfer you?",
+            "suggested_action": "route_to_shop"
+        }
+    
+    if tool_name in MANAGEMENT_TOOLS:
+        shop_name = args.get('shop_name', 'your shop')
+        return {
+            "success": False,
+            "error": "Master agent cannot modify or manage shops",
+            "message": f"I can tell you about shops and services, but I can't modify them. To manage your shop, I can connect you to {shop_name}'s assistant. Would you like me to transfer you?",
+            "suggested_action": "route_to_shop"
+        }
+    
     if tool_name not in MASTER_AGENT_TOOL_NAMES:
         return {"success": False, "error": f"Tool '{tool_name}' not available for master agent"}
     

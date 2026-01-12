@@ -375,6 +375,7 @@ class CreateDealBookingTool(BaseTool):
         from apps.customers.models import Customer
         import pytz
         import logging
+        import re
         logger = logging.getLogger(__name__)
         
         try:
@@ -386,17 +387,55 @@ class CreateDealBookingTool(BaseTool):
             if not all([deal_id, date_str, start_time_str]):
                 return {"success": False, "error": "deal_id, date, and start_time are required"}
             
+            logger.info(f"Creating deal booking: deal_id={deal_id}, date={date_str}, time={start_time_str}")
+            
             # Parse date
             try:
                 target_date = self._parse_natural_date(date_str)
             except ValueError as e:
                 return {"success": False, "error": str(e)}
             
-            # Parse time
+            # Parse time - support both HH:MM and natural language (e.g., "11 AM", "2:30pm")
             try:
+                # First try standard HH:MM format
                 start_time = datetime.strptime(start_time_str, "%H:%M").time()
+                logger.info(f"Parsed time as HH:MM: {start_time}")
             except ValueError:
-                return {"success": False, "error": "Invalid time format. Use HH:MM (e.g., 10:00)"}
+                # Try natural language parsing
+                time_str_lower = start_time_str.lower().strip()
+                
+                # Extract hour, minute, and AM/PM
+                time_pattern = r'(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?'
+                time_match = re.search(time_pattern, time_str_lower)
+                
+                if not time_match:
+                    return {"success": False, "error": f"Invalid time format: {start_time_str}. Use HH:MM (e.g., 11:00) or natural language (e.g., 11 AM)"}
+                
+                hour = int(time_match.group(1))
+                minute = int(time_match.group(2)) if time_match.group(2) else 0
+                am_pm = time_match.group(3)
+                
+                if am_pm:
+                    am_pm = am_pm.replace('.', '').strip()
+                
+                # Check for AM/PM indicators in the full string
+                if am_pm is None:
+                    if any(x in time_str_lower for x in ['am', 'a.m.', 'morning']):
+                        am_pm = 'am'
+                    elif any(x in time_str_lower for x in ['pm', 'p.m.', 'afternoon', 'evening']):
+                        am_pm = 'pm'
+                
+                # Apply AM/PM conversion
+                if am_pm == 'pm' and hour < 12:
+                    hour += 12
+                elif am_pm == 'am' and hour == 12:
+                    hour = 0
+                
+                if hour < 0 or hour > 23:
+                    return {"success": False, "error": f"Invalid hour: {hour}. Must be 0-23."}
+                
+                start_time = datetime.min.time().replace(hour=hour, minute=minute)
+                logger.info(f"Parsed time as natural language: {start_time} (from '{start_time_str}', am_pm={am_pm})")
             
             # Get deal
             try:
@@ -483,17 +522,22 @@ class CreateDealBookingTool(BaseTool):
                 status='pending'
             )
             
-            logger.info(f"Created deal booking {booking.id} for deal {deal.name}")
+            # Format time for confirmation
+            formatted_time = booking_datetime.strftime("%I:%M %p")
+            formatted_date = booking_datetime.strftime("%B %d, %Y")
+            
+            logger.info(f"Created deal booking {booking.id} for {deal.name} on {formatted_date} at {formatted_time} (24h: {booking_datetime.strftime('%H:%M')})")
             
             return {
                 "success": True,
-                "message": f"Successfully booked {deal.name} at {shop.name}!",
+                "message": f"Perfect! I've booked the {deal.name} package at {shop.name} for {formatted_date} at {formatted_time}!",
                 "booking": {
                     "id": str(booking.id),
                     "deal_name": deal.name,
                     "shop_name": shop.name,
                     "date": target_date.isoformat(),
-                    "time": start_time_str,
+                    "time": formatted_time,
+                    "formatted_datetime": f"{formatted_date} at {formatted_time}",
                     "duration_minutes": deal.duration_minutes,
                     "price": float(deal.price),
                     "included_items": deal.included_items,
