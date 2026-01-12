@@ -261,6 +261,11 @@ FIRECRAWL_API_KEY = env('FIRECRAWL_API_KEY', default=None)
 PINECONE_API_KEY = env('PINECONE_API_KEY', default='')
 PINECONE_INDEX_NAME = env('PINECONE_INDEX_NAME', default='beautydrop-knowledge')
 
+# Google Cloud Storage Configuration (for image uploads)
+GCS_BUCKET_NAME = env('GCS_BUCKET_NAME', default='')
+GCS_PROJECT_ID = env('GCS_PROJECT_ID', default='')
+GCS_CREDENTIALS_PATH = env('GCS_CREDENTIALS_PATH', default='')
+
 
 # Redis Configuration
 REDIS_URL = env('REDIS_URL')

@@ -227,7 +227,7 @@ class BookingViewSet(viewsets.GenericViewSet,
                         'amount': 5.0,
                         'amount_cents': 500,
                         'currency': 'usd',
-                        'message': 'Please complete payment to confirm booking'
+                        'message': 'Your slot is reserved for 15 minutes. Please complete payment within this time to confirm your booking.'
                     }
                 },
                 response_only=True
@@ -408,8 +408,15 @@ class BookingViewSet(viewsets.GenericViewSet,
                 'amount': float(payment_result['amount']),
                 'amount_cents': payment_result['amount_cents'],
                 'currency': payment_result['currency'],
-                'message': 'Please complete payment to confirm booking'
+                'message': 'Your slot is reserved for 15 minutes. Please complete payment within this time to confirm your booking.'
             }
+            
+            # Schedule auto-cancellation after 15 minutes if payment not completed
+            from apps.bookings.tasks import cancel_unpaid_booking
+            cancel_unpaid_booking.apply_async(
+                args=[str(booking.id)],
+                countdown=15 * 60  # 15 minutes in seconds
+            )
         else:
             # Payment not required - booking auto-confirmed
             response_data['payment'] = {
@@ -1277,7 +1284,7 @@ class BookingViewSet(viewsets.GenericViewSet,
                         'amount': 12.0,
                         'amount_cents': 1200,
                         'currency': 'usd',
-                        'message': 'Please complete payment to confirm booking'
+                        'message': 'Your slot is reserved for 15 minutes. Please complete payment within this time to confirm your booking.'
                     }
                 },
                 response_only=True
@@ -1377,8 +1384,15 @@ class BookingViewSet(viewsets.GenericViewSet,
                 'amount': float(payment_result['amount']),
                 'amount_cents': payment_result['amount_cents'],
                 'currency': payment_result['currency'],
-                'message': 'Please complete payment to confirm booking'
+                'message': 'Your slot is reserved for 15 minutes. Please complete payment within this time to confirm your booking.'
             }
+            
+            # Schedule auto-cancellation after 15 minutes if payment not completed
+            from apps.bookings.tasks import cancel_unpaid_booking
+            cancel_unpaid_booking.apply_async(
+                args=[str(booking.id)],
+                countdown=15 * 60  # 15 minutes in seconds
+            )
         else:
             # Payment not required - booking auto-confirmed
             response_data['payment'] = {

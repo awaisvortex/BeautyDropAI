@@ -112,27 +112,37 @@ class ShopViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Create shop",
-        description="Create a new shop (salon owners only)",
-        request=ShopCreateUpdateSerializer,
-        examples=[
-            OpenApiExample(
-                'Create Shop Example',
-                value={
-                    'name': 'Sidra\'s Beauty Salon',
-                    'description': 'Premium beauty services',
-                    'address': '123 Main Street',
-                    'city': 'Karachi',
-                    'state': 'Sindh',
-                    'postal_code': '75500',
-                    'country': 'Pakistan',
-                    'phone': '+92-300-1234567',
-                    'email': 'info@sidrasbeauty.com',
-                    'timezone': 'Asia/Karachi',
-                    'is_active': True
+        description="""
+        Create a new shop (salon owners only).
+        
+        You can optionally include a cover image during creation by sending multipart/form-data
+        with the 'cover_image' field.
+        """,
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string'},
+                    'description': {'type': 'string'},
+                    'address': {'type': 'string'},
+                    'city': {'type': 'string'},
+                    'state': {'type': 'string'},
+                    'postal_code': {'type': 'string'},
+                    'country': {'type': 'string'},
+                    'phone': {'type': 'string'},
+                    'email': {'type': 'string'},
+                    'website': {'type': 'string'},
+                    'timezone': {'type': 'string'},
+                    'is_active': {'type': 'boolean'},
+                    'cover_image': {
+                        'type': 'string',
+                        'format': 'binary',
+                        'description': 'Optional cover image (JPEG, PNG, or WebP, max 5MB)'
+                    }
                 },
-                request_only=True
-            )
-        ],
+                'required': ['name', 'address', 'city', 'postal_code', 'phone', 'timezone']
+            }
+        },
         responses={
             201: ShopSerializer,
             400: OpenApiResponse(description="Bad Request"),
@@ -147,6 +157,19 @@ class ShopViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        # Handle cover image if provided
+        cover_image_url = None
+        image_file = request.FILES.get('cover_image')
+        if image_file:
+            from apps.core.services.storage_service import gcs_storage
+            cover_image_url = gcs_storage.upload_image(image_file, folder='shops/covers')
+            if not cover_image_url:
+                return Response(
+                    {'error': 'Failed to upload cover image. Please check file type and size.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Create shop with uploaded image URL
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -154,7 +177,12 @@ class ShopViewSet(viewsets.ModelViewSet):
         from apps.clients.models import Client
         client, created = Client.objects.get_or_create(user=request.user)
         
+        # Save shop with cover image URL if provided
         shop = serializer.save(client=client)
+        if cover_image_url:
+            shop.cover_image_url = cover_image_url
+            shop.save(update_fields=['cover_image_url'])
+        
         return Response(
             ShopSerializer(shop).data,
             status=status.HTTP_201_CREATED
@@ -468,7 +496,7 @@ class ShopViewSet(viewsets.ModelViewSet):
         })
     
     def get_permissions(self):
-        """Set permissions based on action"""
+        """Set permissions based on action."""
         if self.action in ['list', 'retrieve', 'search', 'public', 'timezone_choices']:
             return [AllowAny()]
         elif self.action in ['create', 'update', 'partial_update', 'destroy', 'toggle_active', 'dashboard']:
