@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'apps.clients',
     'apps.customers',
     'apps.shops',
+    'apps.widget',  # Widget configuration for embeddable booking widgets
     'apps.services',
     'apps.schedules',
     'apps.staff',
@@ -178,6 +179,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'System', 'description': 'System health and status'},
         {'name': 'Shops - Public', 'description': 'Public shop discovery and search'},
         {'name': 'Shops - Client', 'description': 'Salon owner shop management'},
+        {'name': 'Widget - Client', 'description': 'Shop owner widget configuration management'},
         {'name': 'Services - Public', 'description': 'Public service browsing'},
         {'name': 'Services - Client', 'description': 'Salon owner service management'},
         {'name': 'Staff - Public', 'description': 'Public staff member browsing'},
