@@ -201,7 +201,37 @@ class ShopViewSet(viewsets.ModelViewSet):
         tags=['Shops - Client']
     )
     def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
+        """Full update with optional cover image upload."""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        
+        # Handle cover image upload (same as create)
+        image_file = request.FILES.get('cover_image')
+        if image_file:
+            from apps.core.services.storage_service import gcs_storage
+            
+            # Delete old image from GCS if exists
+            if instance.cover_image_url:
+                self._delete_old_image(instance.cover_image_url)
+            
+            # Upload new image
+            cover_image_url = gcs_storage.upload_image(image_file, folder='shops/covers')
+            if not cover_image_url:
+                return Response(
+                    {'error': 'Failed to upload cover image. Please check file type and size.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Save to instance (same as create)
+            instance.cover_image_url = cover_image_url
+            instance.save(update_fields=['cover_image_url'])
+        
+        # Continue with normal update
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response(serializer.data)
     
     @extend_schema(
         summary="Partial update shop",
@@ -216,7 +246,29 @@ class ShopViewSet(viewsets.ModelViewSet):
         tags=['Shops - Client']
     )
     def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, *args, **kwargs)
+        """Partial update with optional cover image upload."""
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+    
+    def _delete_old_image(self, image_url: str):
+        """Delete old image from GCS bucket."""
+        try:
+            from apps.core.services.storage_service import gcs_storage
+            import re
+            
+            # Extract filename from proxy URL
+            # Format: http://backend/api/media/shops/covers/filename.jpg
+            match = re.search(r'shops/covers/(.+)$', image_url)
+            if match:
+                blob_name = f"shops/covers/{match.group(1)}"
+                blob = gcs_storage.bucket.blob(blob_name)
+                if blob.exists():
+                    blob.delete()
+        except Exception as e:
+            # Log but don't fail the update
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to delete old image: {e}")
     
     @extend_schema(
         summary="Delete shop",
