@@ -191,28 +191,41 @@ class CreateBookingTool(BaseTool):
             "required": ["booking_datetime"]
         }
     
-    def _parse_booking_datetime(self, dt_str: str) -> datetime:
-        """Parse booking datetime from various formats."""
+    def _parse_booking_datetime(self, dt_str: str, shop=None) -> datetime:
+        """Parse booking datetime from various formats using shop's timezone."""
         from datetime import timedelta
         import logging
+        import pytz
         logger = logging.getLogger(__name__)
         
         dt_str = dt_str.strip()
         logger.info(f"Parsing booking datetime from: '{dt_str}'")
         
+        # Get shop timezone or default to UTC
+        if shop and hasattr(shop, 'timezone'):
+            try:
+                shop_tz = pytz.timezone(shop.timezone)
+                logger.info(f"Using shop timezone: {shop.timezone}")
+            except pytz.exceptions.UnknownTimeZoneError:
+                logger.warning(f"Invalid shop timezone {shop.timezone}, using UTC")
+                shop_tz = pytz.UTC
+        else:
+            logger.warning("No shop timezone provided, using UTC")
+            shop_tz = pytz.UTC
+        
         # Try ISO format first
         try:
             dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
             if timezone.is_naive(dt):
-                dt = timezone.make_aware(dt)
+                dt = shop_tz.localize(dt)
             logger.info(f"Parsed as ISO format: {dt}")
             return dt
         except ValueError:
             pass
         
         # Try to parse natural language
-        today = timezone.now().date()
-        current_time = timezone.now()
+        today = timezone.now().astimezone(shop_tz).date()
+        current_time = timezone.now().astimezone(shop_tz)
         
         # Extract time component with improved regex
         # Matches: "2pm", "2 pm", "2:30pm", "14:00", "2:30 PM", "eleven am", etc.
@@ -310,12 +323,12 @@ class CreateBookingTool(BaseTool):
                 # Default to today if no date specified
                 target_date = today
         
-        # Combine date and time
-        booking_dt = timezone.make_aware(
-            datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
-        )
+        # Combine date and time using SHOP'S timezone
+        booking_dt_naive = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
+        booking_dt = shop_tz.localize(booking_dt_naive)
         
-        logger.info(f"Final parsed datetime: {booking_dt} ({booking_dt.strftime('%Y-%m-%d %I:%M %p')})")
+        logger.info(f"Final parsed datetime: {booking_dt} ({booking_dt.strftime('%Y-%m-%d %I:%M %p %Z')})")
+        logger.info(f"Timezone info: {booking_dt.tzinfo}, UTC offset: {booking_dt.strftime('%z')}")
         
         return booking_dt
     
@@ -375,9 +388,9 @@ class CreateBookingTool(BaseTool):
             if not service:
                 return {"success": False, "error": f"Service not found at {shop.name}"}
             
-            # Parse datetime
+            # Parse datetime with shop timezone
             try:
-                booking_dt = self._parse_booking_datetime(kwargs['booking_datetime'])
+                booking_dt = self._parse_booking_datetime(kwargs['booking_datetime'], shop=shop)
             except ValueError as e:
                 return {"success": False, "error": str(e)}
             
@@ -508,23 +521,33 @@ class RescheduleMyBookingTool(BaseTool):
             "required": ["booking_id", "new_datetime"]
         }
     
-    def _parse_datetime(self, dt_str: str):
-        """Parse datetime from various formats."""
+    def _parse_datetime(self, dt_str: str, shop=None):
+        """Parse datetime from various formats using shop's timezone."""
         from datetime import timedelta
         import re
+        import pytz
         
         dt_str = dt_str.strip()
+        
+        # Get shop timezone or default to UTC
+        if shop and hasattr(shop, 'timezone'):
+            try:
+                shop_tz = pytz.timezone(shop.timezone)
+            except pytz.exceptions.UnknownTimeZoneError:
+                shop_tz = pytz.UTC
+        else:
+            shop_tz = pytz.UTC
         
         # Try ISO format first
         try:
             dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
             if timezone.is_naive(dt):
-                dt = timezone.make_aware(dt)
+                dt = shop_tz.localize(dt)
             return dt
         except ValueError:
             pass
         
-        today = timezone.now().date()
+        today = timezone.now().astimezone(shop_tz).date()
         
         # Extract time
         time_pattern = r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)?'
@@ -568,9 +591,8 @@ class RescheduleMyBookingTool(BaseTool):
             if not target_date:
                 target_date = today
         
-        return timezone.make_aware(
-            datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
-        )
+        dt_naive = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
+        return shop_tz.localize(dt_naive)
     
     def execute(self, user, role: str, **kwargs) -> Dict[str, Any]:
         from apps.bookings.models import Booking
@@ -598,9 +620,9 @@ class RescheduleMyBookingTool(BaseTool):
             if booking.status == 'completed':
                 return {"success": False, "error": "Cannot reschedule a completed booking"}
             
-            # Parse new datetime
+            # Parse new datetime with shop timezone
             try:
-                new_dt = self._parse_datetime(kwargs['new_datetime'])
+                new_dt = self._parse_datetime(kwargs['new_datetime'], shop=booking.shop)
             except ValueError as e:
                 return {"success": False, "error": str(e)}
             
