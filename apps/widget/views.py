@@ -24,24 +24,25 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated, IsClient]
     
     @extend_schema(
-        summary="Get widget configuration by shop ID",
+        summary="Get or update widget configuration by shop ID",
         description="""
-        Get widget configuration for a specific shop (shop owners only).
+        Get or update widget configuration for a specific shop (shop owners only).
         
-        If no widget configuration exists for the shop, a default one will be created automatically.
-        This ensures every shop can have a widget without explicitly creating it first.
+        **GET:** Returns widget configuration. Auto-creates with defaults if doesn't exist.
+        **PATCH:** Updates widget configuration with provided fields.
         """,
         parameters=[
             OpenApiParameter(
                 'shop_id',
                 OpenApiTypes.UUID,
                 OpenApiParameter.PATH,
-                description='Shop ID to get widget configuration for'
+                description='Shop ID to get/update widget configuration for'
             )
         ],
+        request=WidgetConfigurationUpdateSerializer,
         examples=[
             OpenApiExample(
-                'Widget Configuration Response',
+                'GET Response',
                 value={
                     'id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
                     'shop': 'e188f3d1-921d-4261-9ea5-d6cfad62962a',
@@ -51,20 +52,33 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
                     'primary_color': '#2563EB',
                     'widget_width': 380,
                     'border_radius': 12,
-                    'banner_image': '',
-                    'custom_title': '',
-                    'custom_description': '',
                     'button_text': 'Book Now',
-                    'logo_url': '',
                     'show_logo': True,
                     'text_align': 'center',
-                    'display_title': 'Elegant Beauty Salon',
-                    'display_description': 'Premium beauty services',
-                    'display_logo': 'https://example.com/logo.png',
                     'is_active': True,
                     'created_at': '2024-12-01T10:00:00Z',
-                    'updated_at': '2024-12-10T15:30:00Z',
-                    'embed_code': '<!-- BeautyDrop Booking Widget -->\\n<div id=\"bd-widget-abc\"></div>'
+                    'updated_at': '2024-12-10T15:30:00Z'
+                },
+                response_only=True
+            ),
+            OpenApiExample(
+                'PATCH Request',
+                value={
+                    'primary_color': '#FF5733',
+                    'layout': 'landscape',
+                    'button_text': 'Reserve Your Spot'
+                },
+                request_only=True
+            ),
+            OpenApiExample(
+                'PATCH Response',
+                value={
+                    'id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                    'shop': 'e188f3d1-921d-4261-9ea5-d6cfad62962a',
+                    'layout': 'landscape',
+                    'primary_color': '#FF5733',
+                    'button_text': 'Reserve Your Spot',
+                    'updated_at': '2024-12-13T17:00:00Z'
                 },
                 response_only=True
             )
@@ -76,111 +90,55 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
         },
         tags=['Widget - Client']
     )
-    @action(detail=False, methods=['get'], url_path='shop/(?P<shop_id>[^/.]+)')
-    def get_by_shop(self, request, shop_id=None):
-        """Get or create widget configuration for a shop"""
+    @action(detail=False, methods=['get', 'patch'], url_path='shop/(?P<shop_id>[^/.]+)')
+    def by_shop(self, request, shop_id=None):
+        """Get or update widget configuration for a shop"""
         # Verify shop ownership
         shop = get_object_or_404(Shop, id=shop_id, client__user=request.user)
         
-        # Get or create widget configuration
-        widget_config, created = WidgetConfiguration.objects.get_or_create(
-            shop=shop,
-            defaults={
-                'layout': 'card',
-                'primary_color': '#2563EB',
-                'widget_width': 380,
-                'border_radius': 12,
-                'button_text': 'Book Now',
-                'show_logo': True,
-                'text_align': 'center',
-                'is_active': True
-            }
-        )
-        
-        serializer = WidgetConfigurationSerializer(widget_config)
-        return Response(serializer.data)
-    
-    @extend_schema(
-        summary="Update widget configuration by shop ID",
-        description="""
-        Update widget configuration for a specific shop (shop owners only).
-        
-        Use partial update to change specific settings without affecting others.
-        """,
-        parameters=[
-            OpenApiParameter(
-                'shop_id',
-                OpenApiTypes.UUID,
-                OpenApiParameter.PATH,
-                description='Shop ID to update widget configuration for'
-            )
-        ],
-        request=WidgetConfigurationUpdateSerializer,
-        examples=[
-            OpenApiExample(
-                'Update Request',
-                value={
-                    'primary_color': '#FF5733',
-                    'layout': 'landscape',
-                    'button_text': 'Reserve Your Spot'
-                },
-                request_only=True,
-                description='Update widget color scheme and layout'
-            ),
-            OpenApiExample(
-                'Updated Configuration Response',
-                value={
-                    'id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-                    'shop': 'e188f3d1-921d-4261-9ea5-d6cfad62962a',
-                    'shop_name': 'Elegant Beauty Salon',
-                    'layout': 'landscape',
-                    'primary_color': '#FF5733',
-                    'button_text': 'Reserve Your Spot',
+        if request.method == 'GET':
+            # Get or create widget configuration
+            widget_config, created = WidgetConfiguration.objects.get_or_create(
+                shop=shop,
+                defaults={
+                    'layout': 'card',
+                    'primary_color': '#2563EB',
                     'widget_width': 380,
-                    'is_active': True,
-                    'updated_at': '2024-12-10T16:00:00Z'
-                },
-                response_only=True
+                    'border_radius': 12,
+                    'button_text': 'Book Now',
+                    'show_logo': True,
+                    'text_align': 'center',
+                    'is_active': True
+                }
             )
-        ],
-        responses={
-            200: WidgetConfigurationSerializer,
-            400: OpenApiResponse(description="Bad Request - Invalid data"),
-            403: OpenApiResponse(description="Forbidden - You don't own this shop"),
-            404: OpenApiResponse(description="Shop not found or widget configuration doesn't exist")
-        },
-        tags=['Widget - Client']
-    )
-    @action(detail=False, methods=['patch'], url_path='shop/(?P<shop_id>[^/.]+)')
-    def update_by_shop(self, request, shop_id=None):
-        """Update widget configuration for a shop"""
-        # Verify shop ownership
-        shop = get_object_or_404(Shop, id=shop_id, client__user=request.user)
+            serializer = WidgetConfigurationSerializer(widget_config)
+            return Response(serializer.data)
         
-        # Get widget configuration (must exist)
-        try:
-            widget_config = WidgetConfiguration.objects.get(shop=shop)
-        except WidgetConfiguration.DoesNotExist:
-            return Response(
-                {
-                    'error': 'Widget configuration not found for this shop',
-                    'message': 'Use GET endpoint first to create a default configuration'
-                },
-                status=status.HTTP_404_NOT_FOUND
+        elif request.method == 'PATCH':
+            # Get widget configuration (must exist)
+            try:
+                widget_config = WidgetConfiguration.objects.get(shop=shop)
+            except WidgetConfiguration.DoesNotExist:
+                return Response(
+                    {
+                        'error': 'Widget configuration not found for this shop',
+                        'message': 'Use GET endpoint first to create a default configuration'
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Update with partial data
+            serializer = WidgetConfigurationUpdateSerializer(
+                widget_config,
+                data=request.data,
+                partial=True
             )
-        
-        # Update with partial data
-        serializer = WidgetConfigurationUpdateSerializer(
-            widget_config,
-            data=request.data,
-            partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        
-        # Return full updated configuration
-        output_serializer = WidgetConfigurationSerializer(widget_config)
-        return Response(output_serializer.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            
+            # Return full updated configuration
+            output_serializer = WidgetConfigurationSerializer(widget_config)
+            return Response(output_serializer.data)
     
     @extend_schema(
         summary="Preview widget with temporary settings",
@@ -212,10 +170,10 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
                 description='Preview with temporary color, layout, and button text'
             ),
             OpenApiExample(
-                'Preview Response',
+                'Complete Preview Response',
                 value={
-                    'preview_url': 'http://localhost:8004/api/v1/widgets/shop/shop-uuid/preview/',
-                    'preview_html': '<div style=\"...\" class=\"widget-preview\">...</div>',
+                    'preview_url': 'http://localhost:8004/api/v1/widgets/shop/e188f3d1-921d-4261-9ea5-d6cfad62962a/preview/',
+                    'preview_html': '<div class="widget-preview" style="width: 380px; border-radius: 12px; background-color: #ffffff; border: 2px solid #FF5733; padding: 20px; text-align: center;">\n  <h3>Elegant Beauty Salon</h3>\n  <p>Premium beauty services</p>\n  <button style="background-color: #FF5733; color: white; padding: 10px 20px; border: none; border-radius: 12px;">Reserve Now</button>\n</div>',
                     'settings': {
                         'layout': 'minimal',
                         'primary_color': '#FF5733',
