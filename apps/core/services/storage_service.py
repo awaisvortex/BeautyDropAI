@@ -76,8 +76,14 @@ class GCSStorageService:
                 logger.error(f"Invalid file type: {file.content_type}")
                 return None
             
-            # Generate unique filename
-            ext = os.path.splitext(file.name)[1]
+            # Generate unique filename with extension from content type
+            ext = self._get_extension_from_content_type(file.content_type)
+            if hasattr(file, 'name') and file.name:
+                # Try to get extension from filename first
+                file_ext = os.path.splitext(file.name)[1].lower()
+                if file_ext in ['.jpg', '.jpeg', '.png', '.webp']:
+                    ext = file_ext
+            
             filename = f"{uuid.uuid4()}{ext}"
             blob_name = f"{folder}/{filename}"
             
@@ -85,14 +91,14 @@ class GCSStorageService:
             blob = self.bucket.blob(blob_name)
             blob.upload_from_file(file, content_type=file.content_type)
             
-            # Make blob publicly readable
-            blob.make_public()
+            # Return proxy URL (works with org domain restriction policies)
+            from django.conf import settings
+            backend_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8004')
+            proxy_url = f"{backend_url}/api/media/{blob_name}"
             
-            # Return public URL
-            public_url = blob.public_url
             logger.info(f"Uploaded image to {blob_name}")
             
-            return public_url
+            return proxy_url
             
         except Exception as e:
             logger.error(f"Failed to upload image: {str(e)}")

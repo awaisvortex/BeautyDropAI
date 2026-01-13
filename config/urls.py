@@ -30,6 +30,9 @@ urlpatterns = [
     path('api/v1/agent/', include('apps.agent.urls')),
     path('api/v1/scraper/', include('apps.scraper.urls')),
     
+    # Media proxy for serving GCS images
+    path('api/media/', include('apps.core.urls')),
+    
     # Webhooks (no version prefix for webhooks)
     path('api/payments/', include('apps.payments.urls')),
 ]

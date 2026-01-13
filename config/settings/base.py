@@ -266,6 +266,10 @@ GCS_BUCKET_NAME = env('GCS_BUCKET_NAME', default='')
 GCS_PROJECT_ID = env('GCS_PROJECT_ID', default='')
 GCS_CREDENTIALS_PATH = env('GCS_CREDENTIALS_PATH', default='')
 
+# Backend URL (for generating proxy URLs)
+BACKEND_URL = env('BACKEND_URL', default='http://localhost:8004')
+
+
 
 # Redis Configuration
 REDIS_URL = env('REDIS_URL')

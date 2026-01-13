@@ -134,8 +134,8 @@ def get_account_link(request):
     
     # Generate return/refresh URLs
     frontend_url = settings.FRONTEND_URL
-    return_url = f"{frontend_url}/dashboard/settings/payments?setup=complete"
-    refresh_url = f"{frontend_url}/dashboard/settings/payments?setup=refresh"
+    return_url = f"{frontend_url}/portal/earnings?setup=complete"
+    refresh_url = f"{frontend_url}/portal/earnings?setup=refresh"
     
     # Create onboarding link
     onboarding_url = stripe_connect_client.create_account_link(
