@@ -394,6 +394,11 @@ class AvailabilityService:
             
             # If at least one staff member is available, add the slot
             if available_staff_ids:
+                # Debug logging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"SLOT GENERATED: {current_slot_start.strftime('%H:%M')} - {slot_end.strftime('%H:%M')} (Staff: {len(available_staff_ids)})")
+                
                 available_slots.append(AvailableSlot(
                     start_time=current_slot_start,
                     end_time=slot_end,
@@ -402,6 +407,11 @@ class AvailabilityService:
             
             # Move to next potential slot start
             current_slot_start += timedelta(minutes=slot_interval)
+        
+        # Debug: Log total slots generated  
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"TOTAL SLOTS GENERATED: {len(available_slots)} for service on {self.target_date}")
         
         return available_slots
     
