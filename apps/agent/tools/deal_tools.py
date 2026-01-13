@@ -223,6 +223,23 @@ class GetDealSlotsTool(BaseTool):
                     "message": f"{shop.name} is closed on {day_name.capitalize()}"
                 }
             
+            # Check if date is a holiday
+            from apps.schedules.models import Holiday
+            is_holiday = Holiday.objects.filter(
+                shop=shop,
+                date=target_date
+            ).exists()
+            
+            if is_holiday:
+                holiday = Holiday.objects.get(shop=shop, date=target_date)
+                return {
+                    "success": True,
+                    "deal": deal.name,
+                    "date": target_date.isoformat(),
+                    "slots": [],
+                    "message": f"{shop.name} is closed for {holiday.name}"
+                }
+            
             # Generate slots
             slot_duration = deal.duration_minutes
             slots = []
