@@ -1173,6 +1173,7 @@ class BookingViewSet(viewsets.GenericViewSet,
         
         # Generate slots based on shop hours and deal duration
         slot_duration = deal.duration_minutes
+        slot_interval = schedule.slot_duration_minutes  # Use shop's configured slot interval
         slots = []
         
         # Get existing deal bookings for this date and shop
@@ -1198,7 +1199,7 @@ class BookingViewSet(viewsets.GenericViewSet,
             
             # Skip past slots
             if current_time < buffer_time:
-                current_time = current_time + timedelta(minutes=30)  # 30-min slot intervals
+                current_time = current_time + timedelta(minutes=slot_interval)
                 continue
             
             # Count overlapping bookings at this time
@@ -1218,7 +1219,7 @@ class BookingViewSet(viewsets.GenericViewSet,
                 'is_available': slots_left > 0
             })
             
-            current_time = current_time + timedelta(minutes=30)  # 30-min slot intervals
+            current_time = current_time + timedelta(minutes=slot_interval)
         
         return Response({
             'deal_id': str(deal.id),

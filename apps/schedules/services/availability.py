@@ -334,9 +334,10 @@ class AvailabilityService:
         """
         available_slots = []
         
-        # Determine slot interval - use service duration (not shop slot_duration!)
-        # This ensures slots don't overlap for longer services
-        slot_interval = self.slot_interval_override or self.service_duration
+        # Determine slot interval - use shop's slot_duration_minutes from schedule
+        # This allows flexible booking times even for longer services
+        # e.g., a 45-min service can be booked at 10:00, 10:30, 11:00 if slot_duration is 30
+        slot_interval = self.slot_interval_override or schedule.slot_duration_minutes
         
         # Create datetime objects for shop hours on target date
         shop_open = datetime.combine(self.target_date, schedule.start_time)
