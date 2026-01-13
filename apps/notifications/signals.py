@@ -116,8 +116,44 @@ def booking_post_save(sender, instance, created, **kwargs):
     
     # ===== NEW BOOKING =====
     if created:
-        if instance.status in ['confirmed', 'pending']:
-            # Queue email task (respects user preferences)
+        if instance.status == 'pending':
+            # Send pending notification - awaiting confirmation
+            try:
+                send_booking_confirmation_task.delay(booking_id)
+                logger.info(f"Queued pending booking emails for booking {booking_id}")
+            except Exception as e:
+                logger.error(f"Failed to queue pending notification: {e}")
+            
+            # Push to Customer
+            send_push_notification(
+                user=parties['customer_user'],
+                title='Booking Request Received ⏳',
+                body=f'Your {item_name} booking at {shop_name} is pending confirmation.',
+                data={'booking_id': booking_id, 'type': NotificationType.BOOKING_CONFIRMATION},
+                notification_type=NotificationType.BOOKING_CONFIRMATION
+            )
+            
+            # Push to Owner (to review and confirm)
+            send_push_notification(
+                user=parties['owner_user'],
+                title='New Booking Pending 🔔',
+                body=f'New booking for {item_name} pending your confirmation.',
+                data={'booking_id': booking_id, 'type': NotificationType.NEW_BOOKING},
+                notification_type=NotificationType.NEW_BOOKING
+            )
+            
+            # Push to Staff (they should know about pending booking)
+            if instance.staff_member:
+                send_push_notification(
+                    user=parties['staff_user'],
+                    title='New Booking Assigned 📅',
+                    body=f'New {item_name} booking pending confirmation.',
+                    data={'booking_id': booking_id, 'type': NotificationType.NEW_BOOKING},
+                    notification_type=NotificationType.NEW_BOOKING
+                )
+                
+        elif instance.status == 'confirmed':
+            # Booking created as confirmed (payment completed immediately)
             try:
                 send_booking_confirmation_task.delay(booking_id)
                 logger.info(f"Queued confirmation emails for booking {booking_id}")

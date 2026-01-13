@@ -74,14 +74,13 @@ class BookingPaymentService:
         
         # Check if advance payment is required
         if not shop.advance_payment_enabled:
-            # Mark booking as not requiring payment
+            # Mark booking as not requiring payment but keep as pending
             booking.payment_status = BOOKING_PAYMENT_NOT_REQUIRED
-            booking.status = BOOKING_STATUS_CONFIRMED
-            booking.save(update_fields=['payment_status', 'status'])
+            booking.save(update_fields=['payment_status'])
             return {
                 'success': True,
                 'payment_required': False,
-                'message': 'Advance payment not required for this shop'
+                'message': 'Booking created successfully. Salon owner will confirm your booking shortly.'
             }
         
         # Calculate advance amount
@@ -91,37 +90,36 @@ class BookingPaymentService:
         
         if advance_amount <= 0:
             booking.payment_status = BOOKING_PAYMENT_NOT_REQUIRED
-            booking.status = BOOKING_STATUS_CONFIRMED
-            booking.save(update_fields=['payment_status', 'status'])
+            booking.save(update_fields=['payment_status'])
             return {
                 'success': True,
                 'payment_required': False,
-                'message': 'Advance payment amount is zero'
+                'message': 'Booking created successfully. Salon owner will confirm your booking shortly.'
             }
         
         # Get connected account for the shop owner
         try:
             connected_account = shop.client.connected_account
             if not connected_account.is_ready_for_payments:
-                # Owner hasn't completed onboarding - allow booking without payment
+                # Owner hasn't completed onboarding - booking stays pending
                 logger.warning(f"Shop {shop.id} owner hasn't completed Stripe onboarding")
                 booking.payment_status = BOOKING_PAYMENT_NOT_REQUIRED
                 booking.save(update_fields=['payment_status'])
                 return {
                     'success': True,
                     'payment_required': False,
-                    'message': 'Shop payment setup incomplete - booking created without deposit'
+                    'message': 'Booking created successfully. Salon owner will confirm your booking shortly.'
                 }
             destination_account_id = connected_account.stripe_account_id
         except ConnectedAccount.DoesNotExist:
-            # No connected account - allow booking without payment
+            # No connected account - booking stays pending
             logger.warning(f"Shop {shop.id} has no connected Stripe account")
             booking.payment_status = BOOKING_PAYMENT_NOT_REQUIRED
             booking.save(update_fields=['payment_status'])
             return {
                 'success': True,
                 'payment_required': False,
-                'message': 'Shop payment setup incomplete - booking created without deposit'
+                'message': 'Booking created successfully. Salon owner will confirm your booking shortly.'
             }
         
         # Get customer's Stripe ID if they have one

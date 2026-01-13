@@ -418,10 +418,10 @@ class BookingViewSet(viewsets.GenericViewSet,
                 countdown=15 * 60  # 15 minutes in seconds
             )
         else:
-            # Payment not required - booking auto-confirmed
+            # Payment not required - booking stays pending awaiting owner confirmation
             response_data['payment'] = {
                 'required': False,
-                'message': payment_result.get('message', 'No advance payment required')
+                'message': 'Booking created successfully. Salon owner will confirm your booking shortly.'
             }
         
         return Response(
