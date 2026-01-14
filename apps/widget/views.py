@@ -30,6 +30,12 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
         
         **GET:** Returns widget configuration. Auto-creates with defaults if doesn't exist.
         **PATCH:** Updates widget configuration with provided fields.
+        
+        For PATCH requests, you can upload images using multipart/form-data:
+        - `banner_image`: Optional banner image file (JPEG, PNG, or WebP, max 5MB)
+        - `logo`: Optional logo image file (JPEG, PNG, or WebP, max 5MB)
+        
+        Other fields can be included as form fields or JSON body.
         """,
         parameters=[
             OpenApiParameter(
@@ -39,7 +45,33 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
                 description='Shop ID to get/update widget configuration for'
             )
         ],
-        request=WidgetConfigurationUpdateSerializer,
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'layout': {'type': 'string', 'enum': ['card', 'landscape', 'minimal']},
+                    'primary_color': {'type': 'string', 'description': 'Hex color (e.g., #2563EB)'},
+                    'widget_width': {'type': 'integer', 'minimum': 280, 'maximum': 800},
+                    'border_radius': {'type': 'integer', 'maximum': 50},
+                    'custom_title': {'type': 'string'},
+                    'custom_description': {'type': 'string'},
+                    'button_text': {'type': 'string', 'maxLength': 50},
+                    'show_logo': {'type': 'boolean'},
+                    'text_align': {'type': 'string', 'enum': ['left', 'center', 'right']},
+                    'is_active': {'type': 'boolean'},
+                    'banner_image': {
+                        'type': 'string',
+                        'format': 'binary',
+                        'description': 'Optional banner image (JPEG, PNG, or WebP, max 5MB)'
+                    },
+                    'logo': {
+                        'type': 'string',
+                        'format': 'binary',
+                        'description': 'Optional logo image (JPEG, PNG, or WebP, max 5MB)'
+                    }
+                }
+            }
+        },
         examples=[
             OpenApiExample(
                 'GET Response',
@@ -52,6 +84,8 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
                     'primary_color': '#2563EB',
                     'widget_width': 380,
                     'border_radius': 12,
+                    'banner_image_url': 'http://localhost:8004/api/media/widgets/banners/abc123.jpg',
+                    'logo_url': 'http://localhost:8004/api/media/widgets/logos/def456.png',
                     'button_text': 'Book Now',
                     'show_logo': True,
                     'text_align': 'center',
@@ -62,7 +96,7 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
                 response_only=True
             ),
             OpenApiExample(
-                'PATCH Request',
+                'PATCH Request (JSON only)',
                 value={
                     'primary_color': '#FF5733',
                     'layout': 'landscape',
@@ -77,6 +111,7 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
                     'shop': 'e188f3d1-921d-4261-9ea5-d6cfad62962a',
                     'layout': 'landscape',
                     'primary_color': '#FF5733',
+                    'banner_image_url': 'http://localhost:8004/api/media/widgets/banners/abc123.jpg',
                     'button_text': 'Reserve Your Spot',
                     'updated_at': '2024-12-13T17:00:00Z'
                 },
@@ -85,6 +120,7 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
         ],
         responses={
             200: WidgetConfigurationSerializer,
+            400: OpenApiResponse(description="Bad Request - Invalid file type or size"),
             403: OpenApiResponse(description="Forbidden - You don't own this shop"),
             404: OpenApiResponse(description="Shop not found")
         },
@@ -127,7 +163,52 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Update with partial data
+            # Handle banner image upload
+            banner_image_file = request.FILES.get('banner_image')
+            if banner_image_file:
+                from apps.core.services.storage_service import gcs_storage
+                
+                # Delete old image if exists
+                if widget_config.banner_image_url:
+                    self._delete_old_image(widget_config.banner_image_url, 'widgets/banners')
+                
+                # Upload new image
+                banner_url = gcs_storage.upload_image(banner_image_file, folder='widgets/banners')
+                if not banner_url:
+                    return Response(
+                        {'error': 'Failed to upload banner image. Please check file type and size.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                widget_config.banner_image_url = banner_url
+            
+            # Handle logo image upload
+            logo_file = request.FILES.get('logo')
+            if logo_file:
+                from apps.core.services.storage_service import gcs_storage
+                
+                # Delete old image if exists
+                if widget_config.logo_url:
+                    self._delete_old_image(widget_config.logo_url, 'widgets/logos')
+                
+                # Upload new image
+                logo_url = gcs_storage.upload_image(logo_file, folder='widgets/logos')
+                if not logo_url:
+                    return Response(
+                        {'error': 'Failed to upload logo image. Please check file type and size.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                widget_config.logo_url = logo_url
+            
+            # Save image URL updates if any image was uploaded
+            if banner_image_file or logo_file:
+                update_fields = []
+                if banner_image_file:
+                    update_fields.append('banner_image_url')
+                if logo_file:
+                    update_fields.append('logo_url')
+                widget_config.save(update_fields=update_fields)
+            
+            # Update with partial data (other fields from JSON)
             serializer = WidgetConfigurationUpdateSerializer(
                 widget_config,
                 data=request.data,
@@ -265,3 +346,23 @@ class WidgetConfigurationViewSet(viewsets.ViewSet):
         </div>
         '''
         return html
+    
+    def _delete_old_image(self, image_url: str, folder: str):
+        """Delete old image from GCS bucket."""
+        try:
+            from apps.core.services.storage_service import gcs_storage
+            import re
+            
+            # Extract filename from proxy URL
+            # Format: http://backend/api/media/widgets/banners/filename.jpg
+            match = re.search(rf'{folder}/(.+)$', image_url)
+            if match:
+                blob_name = f"{folder}/{match.group(1)}"
+                blob = gcs_storage.bucket.blob(blob_name)
+                if blob.exists():
+                    blob.delete()
+        except Exception as e:
+            # Log but don't fail the update
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to delete old image: {e}")
