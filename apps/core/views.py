@@ -9,13 +9,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class ShopCoverImageProxyView(View):
+class GCSImageProxyView(View):
     """
-    Proxy view for serving shop cover images from GCS.
+    Generic proxy view for serving images from GCS.
     
     This allows serving images from private GCS buckets through the backend,
     working around organization policies that prevent public bucket access.
     """
+    folder = None  # Must be set in URL config or subclass
     
     def get(self, request, filename):
         """
@@ -25,7 +26,11 @@ class ShopCoverImageProxyView(View):
             filename: Image filename (e.g., 'abc123.jpg')
         """
         try:
-            blob_name = f"shops/covers/{filename}"
+            folder = self.kwargs.get('folder', self.folder)
+            if not folder:
+                raise Http404("Invalid folder configuration")
+            
+            blob_name = f"{folder}/{filename}"
             
             # Get blob from GCS
             blob = gcs_storage.bucket.blob(blob_name)
@@ -52,3 +57,18 @@ class ShopCoverImageProxyView(View):
         except Exception as e:
             logger.error(f"Error serving image {filename}: {str(e)}")
             raise Http404("Image not found")
+
+
+class ShopCoverImageProxyView(GCSImageProxyView):
+    """Proxy view for shop cover images (backwards compatibility)."""
+    folder = "shops/covers"
+
+
+class WidgetBannerImageProxyView(GCSImageProxyView):
+    """Proxy view for widget banner images."""
+    folder = "widgets/banners"
+
+
+class WidgetLogoImageProxyView(GCSImageProxyView):
+    """Proxy view for widget logo images."""
+    folder = "widgets/logos"
