@@ -2,6 +2,7 @@
 Booking serializers
 """
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
 from .models import Booking
 from django.utils import timezone
 
@@ -111,6 +112,60 @@ class BookingCreateSerializer(serializers.Serializer):
         return data
 
 
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Pending Booking (Payable)',
+            value={
+                'id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                'customer_name': 'John Doe',
+                'shop_name': 'Elegant Salon',
+                'service_name': 'Haircut & Style',
+                'deal_name': None,
+                'item_name': 'Haircut & Style',
+                'is_deal_booking': False,
+                'staff_member_name': 'Sarah Johnson',
+                'booking_datetime': '2026-01-15T14:00:00Z',
+                'duration_minutes': 45,
+                'status': 'pending',
+                'payment_status': 'pending',
+                'can_pay': True,
+                'client_secret': 'pi_3Abc123XYz_secret_def456',
+                'payment_expires_at': '2026-01-14T12:45:00Z',
+                'time_remaining_seconds': 845,
+                'payment_amount': 5.00,
+                'total_price': '50.00',
+                'created_at': '2026-01-14T12:30:00Z'
+            },
+            response_only=True
+        ),
+        OpenApiExample(
+            'Confirmed Booking',
+            value={
+                'id': 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+                'customer_name': 'Jane Smith',
+                'shop_name': 'Elegant Salon',
+                'service_name': None,
+                'deal_name': 'Spa Package',
+                'item_name': 'Spa Package',
+                'is_deal_booking': True,
+                'staff_member_name': None,
+                'booking_datetime': '2026-01-16T10:00:00Z',
+                'duration_minutes': 90,
+                'status': 'confirmed',
+                'payment_status': 'paid',
+                'can_pay': False,
+                'client_secret': None,
+                'payment_expires_at': None,
+                'time_remaining_seconds': None,
+                'payment_amount': None,
+                'total_price': '120.00',
+                'created_at': '2026-01-13T09:00:00Z'
+            },
+            response_only=True
+        )
+    ]
+)
 class BookingListSerializer(serializers.ModelSerializer):
     """Simplified booking serializer for lists - supports both service and deal bookings"""
     customer_name = serializers.CharField(source='customer.user.full_name', read_only=True)
@@ -130,13 +185,21 @@ class BookingListSerializer(serializers.ModelSerializer):
     payment_status = serializers.CharField(read_only=True)
     can_pay = serializers.SerializerMethodField(help_text="True if booking can be paid (pending and within 15-min window)")
     
+    # Payment info for Stripe.js (only present when can_pay is True)
+    client_secret = serializers.SerializerMethodField(help_text="Stripe client_secret for payment (null if not payable)")
+    payment_expires_at = serializers.SerializerMethodField(help_text="When payment window expires")
+    time_remaining_seconds = serializers.SerializerMethodField(help_text="Seconds remaining to pay")
+    payment_amount = serializers.SerializerMethodField(help_text="Advance payment amount")
+    
     class Meta:
         model = Booking
         fields = [
             'id', 'customer_name', 'shop_name', 
             'service_name', 'deal_name', 'item_name', 'is_deal_booking',
             'staff_member_name', 'booking_datetime', 'duration_minutes',
-            'status', 'payment_status', 'can_pay', 'total_price', 'created_at'
+            'status', 'payment_status', 'can_pay', 
+            'client_secret', 'payment_expires_at', 'time_remaining_seconds', 'payment_amount',
+            'total_price', 'created_at'
         ]
     
     def get_item_name(self, obj):
@@ -164,6 +227,46 @@ class BookingListSerializer(serializers.ModelSerializer):
         except Exception:
             pass
         return False
+    
+    def get_client_secret(self, obj):
+        """Return client_secret only if booking can be paid."""
+        if not self.get_can_pay(obj):
+            return None
+        try:
+            payment = obj.advance_payment
+            return payment.metadata.get('client_secret')
+        except Exception:
+            return None
+    
+    def get_payment_expires_at(self, obj):
+        """Return payment expiry time if applicable."""
+        if obj.status != 'pending' or obj.payment_status != 'pending':
+            return None
+        try:
+            payment = obj.advance_payment
+            if payment and payment.payment_expires_at:
+                return payment.payment_expires_at
+        except Exception:
+            pass
+        return None
+    
+    def get_time_remaining_seconds(self, obj):
+        """Return seconds remaining in payment window."""
+        expires_at = self.get_payment_expires_at(obj)
+        if expires_at:
+            remaining = (expires_at - timezone.now()).total_seconds()
+            return max(0, int(remaining))
+        return None
+    
+    def get_payment_amount(self, obj):
+        """Return advance payment amount if applicable."""
+        if obj.status != 'pending' or obj.payment_status != 'pending':
+            return None
+        try:
+            payment = obj.advance_payment
+            return float(payment.amount) if payment else None
+        except Exception:
+            return None
 
 
 class BookingUpdateStatusSerializer(serializers.Serializer):
@@ -536,6 +639,37 @@ class PaymentInfoSerializer(serializers.Serializer):
     )
 
 
+class PaymentErrorSerializer(serializers.Serializer):
+    """Error response serializer for payment-info endpoint."""
+    error = serializers.CharField(help_text="Error message")
+    expired_at = serializers.DateTimeField(
+        required=False,
+        help_text="When payment window expired (if applicable)"
+    )
+    message = serializers.CharField(
+        required=False,
+        help_text="Additional user-friendly message"
+    )
+
+
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Payment Info Response',
+            value={
+                'booking_id': 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                'client_secret': 'pi_3Abc123XYz_secret_def456',
+                'payment_intent_id': 'pi_3Abc123XYz',
+                'amount': 5.00,
+                'currency': 'usd',
+                'expires_at': '2026-01-14T12:45:00Z',
+                'time_remaining_seconds': 845,
+                'can_pay': True
+            },
+            response_only=True
+        )
+    ]
+)
 class PaymentRetrievalSerializer(serializers.Serializer):
     """
     Response serializer for retrieving payment info for an existing booking.

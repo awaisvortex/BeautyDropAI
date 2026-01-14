@@ -147,16 +147,21 @@ BeautyDrop Team
 @shared_task(name='bookings.send_booking_cancelled_push')
 def send_booking_cancelled_push(user_id: str, title: str, body: str):
     """Send push notification when booking is cancelled."""
-    from apps.notifications.services import notification_service
+    from apps.authentication.models import User
+    from apps.notifications.services.fcm_service import FCMService
     
     try:
-        notification_service.send_push_to_user(
-            user_id=user_id,
+        user = User.objects.get(id=user_id)
+        FCMService.send_to_user(
+            user=user,
             title=title,
             body=body,
-            data={'type': 'booking_cancelled'}
+            data={'type': 'booking_cancelled'},
+            notification_type='booking'
         )
         logger.info(f"Sent cancellation push to user {user_id}")
+    except User.DoesNotExist:
+        logger.error(f"User {user_id} not found for push notification")
     except Exception as e:
         logger.error(f"Failed to send cancellation push to user {user_id}: {e}")
 

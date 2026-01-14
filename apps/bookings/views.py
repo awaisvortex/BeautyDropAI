@@ -28,7 +28,8 @@ from .serializers import (
     DealBookingCreateSerializer,
     BookingWithPaymentResponseSerializer,
     PaymentInfoSerializer,
-    PaymentRetrievalSerializer
+    PaymentRetrievalSerializer,
+    PaymentErrorSerializer
 )
 
 
@@ -89,7 +90,18 @@ class BookingViewSet(viewsets.GenericViewSet,
     
     @extend_schema(
         summary="List bookings",
-        description="Get bookings. Customers see their bookings, salon owners see their shop bookings.",
+        description="""
+        Get bookings. Customers see their bookings, salon owners see their shop bookings.
+        
+        **Payment fields for pending bookings:**
+        - `can_pay`: True if booking is pending and within 15-minute payment window
+        - `client_secret`: Stripe PaymentIntent client secret (only when can_pay=True)
+        - `payment_expires_at`: When the payment window expires
+        - `time_remaining_seconds`: Seconds remaining to complete payment
+        - `payment_amount`: Advance payment amount
+        
+        Use `client_secret` with Stripe.js to show a "Pay Now" button on booking cards.
+        """,
         parameters=[
             OpenApiParameter('status', str, description='Filter by status'),
             OpenApiParameter('shop', str, description='Filter by shop UUID'),
@@ -191,10 +203,19 @@ class BookingViewSet(viewsets.GenericViewSet,
         - Payment must be completed within 15 minutes of booking creation
         - After expiry, booking is automatically cancelled
         """,
+        parameters=[
+            OpenApiParameter(
+                name='id',
+                type=str,
+                location=OpenApiParameter.PATH,
+                description='UUID of the booking to get payment info for',
+                required=True
+            )
+        ],
         responses={
             200: PaymentRetrievalSerializer,
-            400: OpenApiResponse(description="Payment not required or expired"),
-            403: OpenApiResponse(description="Forbidden"),
+            400: PaymentErrorSerializer,
+            403: OpenApiResponse(description="Forbidden - Not your booking"),
             404: OpenApiResponse(description="Booking not found")
         },
         tags=['Bookings - Customer']
