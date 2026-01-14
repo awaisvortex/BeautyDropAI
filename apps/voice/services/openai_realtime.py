@@ -151,9 +151,9 @@ class OpenAIRealtimeClient:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 500
+                    "threshold": 0.25,              # Lower = more sensitive to interruptions (was 0.5)
+                    "prefix_padding_ms": 200,       # Faster response start (was 300)
+                    "silence_duration_ms": 200      # Only 200ms needed to interrupt (was 500)
                 },
                 "tools": tools,
                 "tool_choice": "auto",
