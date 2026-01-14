@@ -466,25 +466,53 @@ class CreateBookingTool(BaseTool):
             
             logger.info(f"Created booking {booking.id} for {formatted_date} at {formatted_time} (24h: {booking_dt.strftime('%H:%M')})")
             
-            return {
-                "success": True,
-                "message": f"Perfect! I've booked {service.name} at {shop.name} for {formatted_date} at {formatted_time}.",
-                "booking": {
-                    "booking_id": str(booking.id),
-                    "shop": shop.name,
-                    "shop_id": str(shop.id),
-                    "service": service.name,
-                    "service_id": str(service.id),
-                    "datetime": booking_dt.isoformat(),
-                    "formatted_datetime": booking_dt.strftime("%B %d, %Y at %I:%M %p"),
-                    "formatted_time": formatted_time,
-                    "formatted_date": formatted_date,
-                    "price": float(service.price),
-                    "status": booking.status,
-                    "staff": staff_member.name if staff_member else "To be assigned",
-                    "staff_id": str(staff_member.id) if staff_member else None
-                }
+            # Attempt to create advance payment
+            from apps.payments.booking_payment_service import booking_payment_service
+            payment_result = booking_payment_service.create_advance_payment(booking)
+            
+            # Build response based on payment result
+            base_booking_info = {
+                "booking_id": str(booking.id),
+                "shop": shop.name,
+                "shop_id": str(shop.id),
+                "service": service.name,
+                "service_id": str(service.id),
+                "datetime": booking_dt.isoformat(),
+                "formatted_datetime": booking_dt.strftime("%B %d, %Y at %I:%M %p"),
+                "formatted_time": formatted_time,
+                "formatted_date": formatted_date,
+                "price": float(service.price),
+                "status": booking.status,
+                "staff": staff_member.name if staff_member else "To be assigned",
+                "staff_id": str(staff_member.id) if staff_member else None
             }
+            
+            if payment_result.get('payment_required'):
+                # Payment is required - schedule auto-cancellation
+                from apps.bookings.tasks import cancel_unpaid_booking
+                cancel_unpaid_booking.apply_async(
+                    args=[str(booking.id)],
+                    countdown=15 * 60  # 15 minutes in seconds
+                )
+                
+                logger.info(f"Payment required for booking {booking.id}, scheduled auto-cancellation in 15 mins")
+                
+                return {
+                    "success": True,
+                    "message": f"I've reserved {service.name} at {shop.name} for {formatted_date} at {formatted_time}. Please go to your Bookings page and complete the {int(shop.advance_payment_percentage)}% advance payment (${float(payment_result['amount']):.2f}) within 15 minutes to confirm your booking.",
+                    "booking": base_booking_info,
+                    "payment_required": True,
+                    "payment_amount": float(payment_result['amount']),
+                    "payment_window_minutes": 15
+                }
+            else:
+                # Payment not required (owner hasn't set up Stripe or advance payment disabled)
+                return {
+                    "success": True,
+                    "message": f"Perfect! I've booked {service.name} at {shop.name} for {formatted_date} at {formatted_time}. The salon owner will confirm your booking shortly.",
+                    "booking": base_booking_info,
+                    "payment_required": False
+                }
             
         except Customer.DoesNotExist:
             return {"success": False, "error": "Customer profile not found"}

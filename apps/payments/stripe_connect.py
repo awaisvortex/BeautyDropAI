@@ -263,6 +263,32 @@ class StripeConnectClient:
         except stripe.error.StripeError as e:
             logger.error(f"Error refunding payment: {str(e)}")
             return None
+    
+    @staticmethod
+    def cancel_payment_intent(payment_intent_id: str) -> Optional[stripe.PaymentIntent]:
+        """
+        Cancel a PaymentIntent that hasn't been paid.
+        
+        Used when a booking expires before payment is completed.
+        This prevents late payments after the booking window closes.
+        
+        Args:
+            payment_intent_id: PaymentIntent ID (pi_xxx)
+            
+        Returns:
+            Cancelled PaymentIntent object or None if failed
+        """
+        try:
+            payment_intent = stripe.PaymentIntent.cancel(payment_intent_id)
+            logger.info(f"Cancelled PaymentIntent {payment_intent_id}")
+            return payment_intent
+        except stripe.error.StripeError as e:
+            # If already cancelled or succeeded, that's fine
+            if 'cannot be cancelled' in str(e).lower():
+                logger.info(f"PaymentIntent {payment_intent_id} already processed")
+                return None
+            logger.error(f"Error cancelling payment intent: {str(e)}")
+            return None
 
 
 # Singleton instance

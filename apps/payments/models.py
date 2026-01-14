@@ -304,6 +304,13 @@ class BookingPayment(BaseModel):
         help_text="Additional payment data"
     )
     
+    # Payment window tracking
+    payment_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the payment window expires (15 mins after creation)"
+    )
+    
     class Meta:
         db_table = 'booking_payments'
         verbose_name = 'Booking Payment'

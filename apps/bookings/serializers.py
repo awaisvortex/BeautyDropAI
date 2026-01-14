@@ -126,13 +126,17 @@ class BookingListSerializer(serializers.ModelSerializer):
     # Computed field for display name (service or deal)
     item_name = serializers.SerializerMethodField()
     
+    # Payment fields
+    payment_status = serializers.CharField(read_only=True)
+    can_pay = serializers.SerializerMethodField(help_text="True if booking can be paid (pending and within 15-min window)")
+    
     class Meta:
         model = Booking
         fields = [
             'id', 'customer_name', 'shop_name', 
             'service_name', 'deal_name', 'item_name', 'is_deal_booking',
             'staff_member_name', 'booking_datetime', 'duration_minutes',
-            'status', 'total_price', 'created_at'
+            'status', 'payment_status', 'can_pay', 'total_price', 'created_at'
         ]
     
     def get_item_name(self, obj):
@@ -142,6 +146,24 @@ class BookingListSerializer(serializers.ModelSerializer):
         elif obj.deal:
             return obj.deal.name
         return 'Unknown'
+    
+    def get_can_pay(self, obj):
+        """
+        Check if booking can still be paid.
+        Returns True only if:
+        - Status is 'pending'
+        - Payment status is 'pending'
+        - Payment window hasn't expired (within 15 mins of creation)
+        """
+        if obj.status != 'pending' or obj.payment_status != 'pending':
+            return False
+        try:
+            payment = obj.advance_payment
+            if payment and payment.payment_expires_at:
+                return payment.payment_expires_at > timezone.now()
+        except Exception:
+            pass
+        return False
 
 
 class BookingUpdateStatusSerializer(serializers.Serializer):
@@ -511,6 +533,34 @@ class PaymentInfoSerializer(serializers.Serializer):
     currency = serializers.CharField(
         required=False,
         help_text="Payment currency (e.g., 'usd')"
+    )
+
+
+class PaymentRetrievalSerializer(serializers.Serializer):
+    """
+    Response serializer for retrieving payment info for an existing booking.
+    Used by GET /bookings/{id}/payment-info/ endpoint.
+    """
+    booking_id = serializers.UUIDField(help_text="Booking ID")
+    client_secret = serializers.CharField(
+        help_text="Stripe PaymentIntent client secret for payment processing"
+    )
+    payment_intent_id = serializers.CharField(
+        help_text="Stripe PaymentIntent ID"
+    )
+    amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Advance payment amount"
+    )
+    currency = serializers.CharField(help_text="Payment currency")
+    expires_at = serializers.DateTimeField(
+        help_text="When the payment window expires"
+    )
+    time_remaining_seconds = serializers.IntegerField(
+        help_text="Seconds remaining in payment window"
+    )
+    can_pay = serializers.BooleanField(
+        help_text="True if payment window is still open"
     )
 
 
