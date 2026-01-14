@@ -23,7 +23,7 @@ class WidgetConfigurationSerializer(serializers.ModelSerializer):
             # Design & Layout
             'layout', 'primary_color', 'widget_width', 'border_radius',
             # Content
-            'banner_image', 'custom_title', 'custom_description',
+            'banner_image_url', 'custom_title', 'custom_description',
             'button_text', 'logo_url',
             # Appearance
             'show_logo', 'text_align',
@@ -100,8 +100,8 @@ class WidgetConfigurationUpdateSerializer(serializers.ModelSerializer):
         model = WidgetConfiguration
         fields = [
             'layout', 'primary_color', 'widget_width', 'border_radius',
-            'banner_image', 'custom_title', 'custom_description', 'button_text',
-            'logo_url', 'show_logo', 'text_align', 'is_active'
+            'custom_title', 'custom_description', 'button_text',
+            'show_logo', 'text_align', 'is_active'
         ]
     
     def validate_primary_color(self, value):

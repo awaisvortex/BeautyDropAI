@@ -50,8 +50,9 @@ class WidgetConfiguration(BaseModel):
     )
     
     # Content
-    banner_image = models.URLField(
+    banner_image_url = models.TextField(
         blank=True,
+        default='',
         help_text='Banner image URL (overrides shop cover image)'
     )
     
@@ -72,8 +73,9 @@ class WidgetConfiguration(BaseModel):
         help_text='Call-to-action button text'
     )
     
-    logo_url = models.URLField(
+    logo_url = models.TextField(
         blank=True,
+        default='',
         help_text='Custom logo URL (overrides shop logo if provided)'
     )
     

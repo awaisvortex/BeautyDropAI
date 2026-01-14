@@ -153,6 +153,10 @@ class BookingPaymentService:
                 'error': 'Failed to create payment intent'
             }
         
+        # Calculate payment expiration (15 minutes from now)
+        from datetime import timedelta
+        payment_expires_at = timezone.now() + timedelta(minutes=15)
+        
         # Create BookingPayment record
         BookingPayment.objects.create(
             booking=booking,
@@ -161,6 +165,7 @@ class BookingPaymentService:
             currency='usd',
             destination_account=connected_account,
             status=BOOKING_PAYMENT_PENDING,
+            payment_expires_at=payment_expires_at,
             metadata={
                 'client_secret': payment_intent.client_secret,
             }

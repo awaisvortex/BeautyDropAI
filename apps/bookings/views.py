@@ -27,7 +27,9 @@ from .serializers import (
     DealAvailabilitySerializer,
     DealBookingCreateSerializer,
     BookingWithPaymentResponseSerializer,
-    PaymentInfoSerializer
+    PaymentInfoSerializer,
+    PaymentRetrievalSerializer,
+    PaymentErrorSerializer
 )
 
 
@@ -88,7 +90,18 @@ class BookingViewSet(viewsets.GenericViewSet,
     
     @extend_schema(
         summary="List bookings",
-        description="Get bookings. Customers see their bookings, salon owners see their shop bookings.",
+        description="""
+        Get bookings. Customers see their bookings, salon owners see their shop bookings.
+        
+        **Payment fields for pending bookings:**
+        - `can_pay`: True if booking is pending and within 15-minute payment window
+        - `client_secret`: Stripe PaymentIntent client secret (only when can_pay=True)
+        - `payment_expires_at`: When the payment window expires
+        - `time_remaining_seconds`: Seconds remaining to complete payment
+        - `payment_amount`: Advance payment amount
+        
+        Use `client_secret` with Stripe.js to show a "Pay Now" button on booking cards.
+        """,
         parameters=[
             OpenApiParameter('status', str, description='Filter by status'),
             OpenApiParameter('shop', str, description='Filter by shop UUID'),
@@ -171,6 +184,110 @@ class BookingViewSet(viewsets.GenericViewSet,
             'completed': completed,
             'cancelled': cancelled,
             'total': total
+        })
+    
+    @extend_schema(
+        summary="Get payment info for pending booking",
+        description="""
+        Retrieve payment information for a pending booking.
+        
+        Returns the client_secret for Stripe.js to complete payment,
+        along with expiry time and remaining window.
+        
+        **Use cases:**
+        - Customer wants to pay for a pending booking
+        - Voice agent directed customer to pay via bookings page
+        - Frontend needs to show "Pay Now" button
+        
+        **Payment Window:**
+        - Payment must be completed within 15 minutes of booking creation
+        - After expiry, booking is automatically cancelled
+        """,
+        parameters=[
+            OpenApiParameter(
+                name='id',
+                type=str,
+                location=OpenApiParameter.PATH,
+                description='UUID of the booking to get payment info for',
+                required=True
+            )
+        ],
+        responses={
+            200: PaymentRetrievalSerializer,
+            400: PaymentErrorSerializer,
+            403: OpenApiResponse(description="Forbidden - Not your booking"),
+            404: OpenApiResponse(description="Booking not found")
+        },
+        tags=['Bookings - Customer']
+    )
+    @action(detail=True, methods=['get'], permission_classes=[IsAuthenticated, IsBookingOwner], url_path='payment-info')
+    def payment_info(self, request, pk=None):
+        """
+        Retrieve payment info for a pending booking.
+        Returns client_secret if within payment window.
+        """
+        booking = self.get_object()
+        
+        # Check if booking is pending
+        if booking.status != 'pending':
+            return Response(
+                {'error': f'Booking is not pending (status: {booking.status})'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check payment status
+        if booking.payment_status != 'pending':
+            return Response(
+                {'error': f'Payment not required (payment_status: {booking.payment_status})'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get payment record
+        try:
+            payment = booking.advance_payment
+        except Exception:
+            return Response(
+                {'error': 'No payment record found for this booking'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if within payment window
+        now = timezone.now()
+        if payment.payment_expires_at and now > payment.payment_expires_at:
+            return Response(
+                {
+                    'error': 'Payment window has expired',
+                    'expired_at': payment.payment_expires_at.isoformat(),
+                    'message': 'This booking will be automatically cancelled.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Calculate time remaining
+        time_remaining = 0
+        can_pay = False
+        if payment.payment_expires_at:
+            time_remaining = int((payment.payment_expires_at - now).total_seconds())
+            can_pay = time_remaining > 0
+        
+        # Get client_secret from metadata
+        client_secret = payment.metadata.get('client_secret', '')
+        
+        if not client_secret:
+            return Response(
+                {'error': 'Payment client secret not found'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        return Response({
+            'booking_id': str(booking.id),
+            'client_secret': client_secret,
+            'payment_intent_id': payment.stripe_payment_intent_id,
+            'amount': float(payment.amount),
+            'currency': payment.currency,
+            'expires_at': payment.payment_expires_at.isoformat() if payment.payment_expires_at else None,
+            'time_remaining_seconds': time_remaining,
+            'can_pay': can_pay
         })
     
     @extend_schema(
