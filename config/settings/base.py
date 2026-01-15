@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'apps.agent',
     'apps.voice',
     'apps.scraper',
+    'apps.contact_us',
 ]
 
 MIDDLEWARE = [
@@ -195,6 +196,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Calendars', 'description': 'Google Calendar integration for booking sync'},
         {'name': 'AI Agent', 'description': 'AI-powered chat assistant for booking and shop management'},
         {'name': 'Scraper', 'description': 'Website scraping for shop creation from URLs'},
+        {'name': 'Contact Us', 'description': 'Contact form for consultation requests'},
     ],
     'APPEND_COMPONENTS': {
         'securitySchemes': {
@@ -373,6 +375,9 @@ EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
 EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='BeautyDrop <noreply@beautydrop.ai>')
+
+# Contact Form Configuration
+CONTACT_FORM_RECIPIENT_EMAIL = env('CONTACT_FORM_RECIPIENT_EMAIL', default='awais@vortexnow.ai')
 
 # Logging Configuration
 LOGGING = {
