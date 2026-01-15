@@ -5,6 +5,75 @@ info:
   description: AI-powered beauty salon booking marketplace with smart scheduling,
     payments, and service management. Authentication via Clerk.
 paths:
+  /api/payments/connect/account-link/:
+    get:
+      operationId: payments_connect_account_link_retrieve
+      description: "\n    Get a Stripe onboarding URL for the shop owner.\n    \n\
+        \    Redirect the owner to this URL to complete identity verification\n  \
+        \  and bank account setup. The URL expires after a short time.\n    "
+      summary: Get Onboarding Link
+      tags:
+      - Payments - Connect
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          description: Onboarding URL returned
+        '400':
+          description: No Connect account found
+  /api/payments/connect/create-account/:
+    post:
+      operationId: payments_connect_create_account_create
+      description: "\n    Create a Stripe Connect Express account for the shop owner.\n\
+        \    \n    This is the first step in enabling the owner to receive advance\
+        \ payments.\n    After creating the account, call the account-link endpoint\
+        \ to get the onboarding URL.\n    "
+      summary: Create Connect Account
+      tags:
+      - Payments - Connect
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          description: Account created successfully
+        '400':
+          description: Account already exists or creation failed
+  /api/payments/connect/dashboard/:
+    get:
+      operationId: payments_connect_dashboard_retrieve
+      description: "\n    Get a link to the Stripe Express Dashboard for the shop\
+        \ owner.\n    \n    Allows owners to view their earnings, pending payouts,\
+        \ and settings.\n    "
+      summary: Get Dashboard Link
+      tags:
+      - Payments - Connect
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          description: Dashboard URL returned
+        '400':
+          description: No Connect account found
+  /api/payments/connect/status/:
+    get:
+      operationId: payments_connect_status_retrieve
+      description: "\n    Check the status of the shop owner's Connect account.\n\
+        \    \n    Returns whether the account can receive payments and any\n    pending\
+        \ requirements.\n    "
+      summary: Get Connect Account Status
+      tags:
+      - Payments - Connect
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          description: Account status returned
+        '404':
+          description: No Connect account found
   /api/v1/agent/chat/:
     post:
       operationId: v1_agent_chat_create
@@ -402,8 +471,15 @@ paths:
   /api/v1/bookings/:
     get:
       operationId: v1_bookings_list
-      description: Get bookings. Customers see their bookings, salon owners see their
-        shop bookings.
+      description: "\n        Get bookings. Customers see their bookings, salon owners\
+        \ see their shop bookings.\n        \n        **Payment fields for pending\
+        \ bookings:**\n        - `can_pay`: True if booking is pending and within\
+        \ 15-minute payment window\n        - `client_secret`: Stripe PaymentIntent\
+        \ client secret (only when can_pay=True)\n        - `payment_expires_at`:\
+        \ When the payment window expires\n        - `time_remaining_seconds`: Seconds\
+        \ remaining to complete payment\n        - `payment_amount`: Advance payment\
+        \ amount\n        \n        Use `client_secret` with Stripe.js to show a \"\
+        Pay Now\" button on booking cards.\n        "
       summary: List bookings
       parameters:
       - name: ordering
@@ -450,6 +526,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookingListList'
+              examples:
+                PendingBooking(Payable):
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      customer_name: John Doe
+                      shop_name: Elegant Salon
+                      service_name: Haircut & Style
+                      deal_name: null
+                      item_name: Haircut & Style
+                      is_deal_booking: false
+                      staff_member_name: Sarah Johnson
+                      booking_datetime: '2026-01-15T14:00:00Z'
+                      duration_minutes: 45
+                      status: pending
+                      payment_status: pending
+                      can_pay: true
+                      client_secret: pi_3Abc123XYz_secret_def456
+                      payment_expires_at: '2026-01-14T12:45:00Z'
+                      time_remaining_seconds: 845
+                      payment_amount: 5.0
+                      total_price: '50.00'
+                      created_at: '2026-01-14T12:30:00Z'
+                  summary: Pending Booking (Payable)
+                ConfirmedBooking:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                      customer_name: Jane Smith
+                      shop_name: Elegant Salon
+                      service_name: null
+                      deal_name: Spa Package
+                      item_name: Spa Package
+                      is_deal_booking: true
+                      staff_member_name: null
+                      booking_datetime: '2026-01-16T10:00:00Z'
+                      duration_minutes: 90
+                      status: confirmed
+                      payment_status: paid
+                      can_pay: false
+                      client_secret: null
+                      payment_expires_at: null
+                      time_remaining_seconds: null
+                      payment_amount: null
+                      total_price: '120.00'
+                      created_at: '2026-01-13T09:00:00Z'
+                  summary: Confirmed Booking
           description: ''
   /api/v1/bookings/{id}/:
     get:
@@ -602,6 +731,59 @@ paths:
           description: Forbidden
         '404':
           description: Booking not found
+  /api/v1/bookings/{id}/payment-info/:
+    get:
+      operationId: v1_bookings_payment_info_retrieve
+      description: "\n        Retrieve payment information for a pending booking.\n\
+        \        \n        Returns the client_secret for Stripe.js to complete payment,\n\
+        \        along with expiry time and remaining window.\n        \n        **Use\
+        \ cases:**\n        - Customer wants to pay for a pending booking\n      \
+        \  - Voice agent directed customer to pay via bookings page\n        - Frontend\
+        \ needs to show \"Pay Now\" button\n        \n        **Payment Window:**\n\
+        \        - Payment must be completed within 15 minutes of booking creation\n\
+        \        - After expiry, booking is automatically cancelled\n        "
+      summary: Get payment info for pending booking
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: UUID of the booking to get payment info for
+        required: true
+      tags:
+      - Bookings - Customer
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRetrieval'
+              examples:
+                PaymentInfoResponse:
+                  value:
+                    booking_id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                    client_secret: pi_3Abc123XYz_secret_def456
+                    payment_intent_id: pi_3Abc123XYz
+                    amount: 5.0
+                    currency: usd
+                    expires_at: '2026-01-14T12:45:00Z'
+                    time_remaining_seconds: 845
+                    can_pay: true
+                  summary: Payment Info Response
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentError'
+          description: ''
+        '403':
+          description: Forbidden - Not your booking
+        '404':
+          description: Booking not found
   /api/v1/bookings/{id}/reassign_staff/:
     post:
       operationId: v1_bookings_reassign_staff_create
@@ -723,6 +905,45 @@ paths:
           description: Forbidden - Not shop owner
         '404':
           description: Booking not found
+  /api/v1/bookings/deal_slots/:
+    get:
+      operationId: v1_bookings_deal_slots_retrieve
+      description: "\n        Get available time slots for a deal booking.\n     \
+        \   \n        Deal slots are based on shop hours with capacity limits.\n \
+        \       Each slot shows `slots_left` (out of max_concurrent_deal_bookings).\n\
+        \        \n        **Key differences from service availability:**\n      \
+        \  - No staff required (just shop hours + capacity)\n        - `slots_left`\
+        \ shows remaining capacity at each time\n        "
+      summary: Get deal availability slots
+      parameters:
+      - in: query
+        name: date
+        schema:
+          type: string
+        description: Date (YYYY-MM-DD)
+        required: true
+      - in: query
+        name: deal_id
+        schema:
+          type: string
+        description: UUID of the deal
+        required: true
+      tags:
+      - Deals - Booking
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DealAvailability'
+          description: ''
+        '400':
+          description: Bad Request - Invalid deal or date
+        '404':
+          description: Deal not found
   /api/v1/bookings/dynamic_book/:
     post:
       operationId: v1_bookings_dynamic_book_create
@@ -732,7 +953,15 @@ paths:
         \        \n        The system will:\n        1. Validate the slot is within\
         \ shop hours\n        2. Check staff availability for the requested time\n\
         \        3. Auto-assign or use specified staff member\n        4. Create the\
-        \ booking directly\n        "
+        \ booking with 'pending' status\n        5. Create a payment intent if Stripe\
+        \ Connect is enabled\n        \n        **Payment Flow:**\n        - If shop\
+        \ owner has Stripe Connect enabled: Returns `client_secret` for payment\n\
+        \        - If shop doesn't have Stripe Connect: Booking is auto-confirmed\n\
+        \        - If advance payment is disabled: Booking is auto-confirmed\n   \
+        \     \n        **Response includes:**\n        - Booking details\n      \
+        \  - Payment object with either:\n          - `client_secret` for Stripe.js\
+        \ (when payment required)\n          - Confirmation message (when no payment\
+        \ required)\n        "
       summary: Dynamic booking (no TimeSlot required)
       tags:
       - Bookings - Customer
@@ -765,10 +994,119 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Booking'
+                $ref: '#/components/schemas/BookingWithPaymentResponse'
+              examples:
+                ResponseWithPaymentRequired:
+                  value:
+                    id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                    status: pending
+                    service:
+                      id: d241ec69...
+                      name: Haircut
+                    booking_datetime: '2024-12-10T10:00:00Z'
+                    total_price: '50.00'
+                    payment:
+                      required: true
+                      client_secret: pi_xxx_secret_yyy
+                      payment_intent_id: pi_xxx
+                      amount: 5.0
+                      amount_cents: 500
+                      currency: usd
+                      message: Your slot is reserved for 15 minutes. Please complete
+                        payment within this time to confirm your booking.
+                  summary: Response with Payment Required
+                ResponseWithoutPaymentRequired:
+                  value:
+                    id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                    status: confirmed
+                    service:
+                      id: d241ec69...
+                      name: Haircut
+                    booking_datetime: '2024-12-10T10:00:00Z'
+                    total_price: '50.00'
+                    payment:
+                      required: false
+                      message: Shop payment setup incomplete - booking created without
+                        deposit
+                  summary: Response without Payment Required
           description: ''
         '400':
           description: Bad Request - Slot not available or invalid data
+        '403':
+          description: Forbidden - Only customers can create bookings
+  /api/v1/bookings/dynamic_book_deal/:
+    post:
+      operationId: v1_bookings_dynamic_book_deal_create
+      description: "\n        Create a deal booking without staff assignment.\n  \
+        \      \n        Deal bookings are capacity-based (no staff required) and\
+        \ use the shop's\n        max_concurrent_deal_bookings setting.\n        \n\
+        \        The system will:\n        1. Validate the slot is within shop hours\n\
+        \        2. Check capacity at the requested time\n        3. Create the booking\
+        \ with 'pending' status\n        4. Create a payment intent if Stripe Connect\
+        \ is enabled\n        \n        **Payment Flow:**\n        - If shop owner\
+        \ has Stripe Connect enabled: Returns `client_secret` for payment\n      \
+        \  - If shop doesn't have Stripe Connect: Booking is auto-confirmed\n    \
+        \    - If advance payment is disabled: Booking is auto-confirmed\n       \
+        \ \n        **Response includes:**\n        - Booking details (with deal information)\n\
+        \        - Payment object with either:\n          - `client_secret` for Stripe.js\
+        \ (when payment required)\n          - Confirmation message (when no payment\
+        \ required)\n        "
+      summary: Dynamic booking for deals
+      tags:
+      - Bookings - Customer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DealBookingCreateRequest'
+            examples:
+              DealBookingRequest:
+                value:
+                  deal_id: f9e8d7c6b5a4-3210-fedc-ba98-76543210fedc
+                  date: '2024-12-15'
+                  start_time: '14:00'
+                  duration_minutes: 90
+                  notes: Birthday celebration
+                summary: Deal Booking Request
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DealBookingCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DealBookingCreateRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingWithPaymentResponse'
+              examples:
+                ResponseWithPaymentRequired:
+                  value:
+                    id: booking123
+                    status: pending
+                    deal:
+                      id: deal123
+                      name: Spa Package
+                    booking_datetime: '2024-12-15T14:00:00Z'
+                    total_price: '120.00'
+                    payment:
+                      required: true
+                      client_secret: pi_xxx_secret_yyy
+                      payment_intent_id: pi_xxx
+                      amount: 12.0
+                      amount_cents: 1200
+                      currency: usd
+                      message: Your slot is reserved for 15 minutes. Please complete
+                        payment within this time to confirm your booking.
+                  summary: Response with Payment Required
+          description: ''
+        '400':
+          description: No slots available or invalid data
         '403':
           description: Forbidden - Only customers can create bookings
   /api/v1/bookings/my_bookings/:
@@ -832,6 +1170,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookingListList'
+              examples:
+                PendingBooking(Payable):
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      customer_name: John Doe
+                      shop_name: Elegant Salon
+                      service_name: Haircut & Style
+                      deal_name: null
+                      item_name: Haircut & Style
+                      is_deal_booking: false
+                      staff_member_name: Sarah Johnson
+                      booking_datetime: '2026-01-15T14:00:00Z'
+                      duration_minutes: 45
+                      status: pending
+                      payment_status: pending
+                      can_pay: true
+                      client_secret: pi_3Abc123XYz_secret_def456
+                      payment_expires_at: '2026-01-14T12:45:00Z'
+                      time_remaining_seconds: 845
+                      payment_amount: 5.0
+                      total_price: '50.00'
+                      created_at: '2026-01-14T12:30:00Z'
+                  summary: Pending Booking (Payable)
+                ConfirmedBooking:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                      customer_name: Jane Smith
+                      shop_name: Elegant Salon
+                      service_name: null
+                      deal_name: Spa Package
+                      item_name: Spa Package
+                      is_deal_booking: true
+                      staff_member_name: null
+                      booking_datetime: '2026-01-16T10:00:00Z'
+                      duration_minutes: 90
+                      status: confirmed
+                      payment_status: paid
+                      can_pay: false
+                      client_secret: null
+                      payment_expires_at: null
+                      time_remaining_seconds: null
+                      payment_amount: null
+                      total_price: '120.00'
+                      created_at: '2026-01-13T09:00:00Z'
+                  summary: Confirmed Booking
+          description: ''
+  /api/v1/bookings/my_stats/:
+    get:
+      operationId: v1_bookings_my_stats_retrieve
+      description: Get current customer's booking statistics including upcoming count
+        and total spending
+      summary: My booking stats
+      tags:
+      - Bookings - Customer
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerBookingStats'
           description: ''
   /api/v1/bookings/shop/{shop_id}/:
     get:
@@ -889,6 +1298,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookingListList'
+              examples:
+                PendingBooking(Payable):
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      customer_name: John Doe
+                      shop_name: Elegant Salon
+                      service_name: Haircut & Style
+                      deal_name: null
+                      item_name: Haircut & Style
+                      is_deal_booking: false
+                      staff_member_name: Sarah Johnson
+                      booking_datetime: '2026-01-15T14:00:00Z'
+                      duration_minutes: 45
+                      status: pending
+                      payment_status: pending
+                      can_pay: true
+                      client_secret: pi_3Abc123XYz_secret_def456
+                      payment_expires_at: '2026-01-14T12:45:00Z'
+                      time_remaining_seconds: 845
+                      payment_amount: 5.0
+                      total_price: '50.00'
+                      created_at: '2026-01-14T12:30:00Z'
+                  summary: Pending Booking (Payable)
+                ConfirmedBooking:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                      customer_name: Jane Smith
+                      shop_name: Elegant Salon
+                      service_name: null
+                      deal_name: Spa Package
+                      item_name: Spa Package
+                      is_deal_booking: true
+                      staff_member_name: null
+                      booking_datetime: '2026-01-16T10:00:00Z'
+                      duration_minutes: 90
+                      status: confirmed
+                      payment_status: paid
+                      can_pay: false
+                      client_secret: null
+                      payment_expires_at: null
+                      time_remaining_seconds: null
+                      payment_amount: null
+                      total_price: '120.00'
+                      created_at: '2026-01-13T09:00:00Z'
+                  summary: Confirmed Booking
           description: ''
   /api/v1/bookings/shop/{shop_id}/stats/:
     get:
@@ -981,6 +1443,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookingListList'
+              examples:
+                PendingBooking(Payable):
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      customer_name: John Doe
+                      shop_name: Elegant Salon
+                      service_name: Haircut & Style
+                      deal_name: null
+                      item_name: Haircut & Style
+                      is_deal_booking: false
+                      staff_member_name: Sarah Johnson
+                      booking_datetime: '2026-01-15T14:00:00Z'
+                      duration_minutes: 45
+                      status: pending
+                      payment_status: pending
+                      can_pay: true
+                      client_secret: pi_3Abc123XYz_secret_def456
+                      payment_expires_at: '2026-01-14T12:45:00Z'
+                      time_remaining_seconds: 845
+                      payment_amount: 5.0
+                      total_price: '50.00'
+                      created_at: '2026-01-14T12:30:00Z'
+                  summary: Pending Booking (Payable)
+                ConfirmedBooking:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                      customer_name: Jane Smith
+                      shop_name: Elegant Salon
+                      service_name: null
+                      deal_name: Spa Package
+                      item_name: Spa Package
+                      is_deal_booking: true
+                      staff_member_name: null
+                      booking_datetime: '2026-01-16T10:00:00Z'
+                      duration_minutes: 90
+                      status: confirmed
+                      payment_status: paid
+                      can_pay: false
+                      client_secret: null
+                      payment_expires_at: null
+                      time_remaining_seconds: null
+                      payment_amount: null
+                      total_price: '120.00'
+                      created_at: '2026-01-13T09:00:00Z'
+                  summary: Confirmed Booking
           description: ''
   /api/v1/bookings/shop/{shop_id}/upcoming/:
     get:
@@ -1049,6 +1564,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookingListList'
+              examples:
+                PendingBooking(Payable):
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      customer_name: John Doe
+                      shop_name: Elegant Salon
+                      service_name: Haircut & Style
+                      deal_name: null
+                      item_name: Haircut & Style
+                      is_deal_booking: false
+                      staff_member_name: Sarah Johnson
+                      booking_datetime: '2026-01-15T14:00:00Z'
+                      duration_minutes: 45
+                      status: pending
+                      payment_status: pending
+                      can_pay: true
+                      client_secret: pi_3Abc123XYz_secret_def456
+                      payment_expires_at: '2026-01-14T12:45:00Z'
+                      time_remaining_seconds: 845
+                      payment_amount: 5.0
+                      total_price: '50.00'
+                      created_at: '2026-01-14T12:30:00Z'
+                  summary: Pending Booking (Payable)
+                ConfirmedBooking:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                      customer_name: Jane Smith
+                      shop_name: Elegant Salon
+                      service_name: null
+                      deal_name: Spa Package
+                      item_name: Spa Package
+                      is_deal_booking: true
+                      staff_member_name: null
+                      booking_datetime: '2026-01-16T10:00:00Z'
+                      duration_minutes: 90
+                      status: confirmed
+                      payment_status: paid
+                      can_pay: false
+                      client_secret: null
+                      payment_expires_at: null
+                      time_remaining_seconds: null
+                      payment_amount: null
+                      total_price: '120.00'
+                      created_at: '2026-01-13T09:00:00Z'
+                  summary: Confirmed Booking
           description: ''
   /api/v1/calendars/calendars/:
     get:
@@ -1265,6 +1833,273 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
           description: ''
+  /api/v1/clients/:
+    get:
+      operationId: v1_clients_list
+      description: |-
+        ViewSet for Client model.
+
+        Includes client profile management and earnings statistics.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - v1
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClientList'
+          description: ''
+    post:
+      operationId: v1_clients_create
+      description: |-
+        ViewSet for Client model.
+
+        Includes client profile management and earnings statistics.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientCreateUpdateRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientCreateUpdate'
+          description: ''
+  /api/v1/clients/{id}/:
+    get:
+      operationId: v1_clients_retrieve
+      description: |-
+        ViewSet for Client model.
+
+        Includes client profile management and earnings statistics.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - v1
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+    put:
+      operationId: v1_clients_update
+      description: |-
+        ViewSet for Client model.
+
+        Includes client profile management and earnings statistics.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientCreateUpdateRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientCreateUpdate'
+          description: ''
+    patch:
+      operationId: v1_clients_partial_update
+      description: |-
+        ViewSet for Client model.
+
+        Includes client profile management and earnings statistics.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedClientCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedClientCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedClientCreateUpdateRequest'
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientCreateUpdate'
+          description: ''
+    delete:
+      operationId: v1_clients_destroy
+      description: |-
+        ViewSet for Client model.
+
+        Includes client profile management and earnings statistics.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - v1
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/clients/me/:
+    get:
+      operationId: v1_clients_me_retrieve
+      description: Get the current client's (salon owner's) profile
+      summary: Get my profile
+      tags:
+      - Clients
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+  /api/v1/clients/total-earnings/:
+    get:
+      operationId: v1_clients_total_earnings_retrieve
+      description: "\n        Get the total earnings for the authenticated client\
+        \ (salon owner) across ALL their shops.\n        \n        Returns:\n    \
+        \    - Grand total of earnings from completed bookings\n        - Number of\
+        \ shops owned\n        - Total completed bookings count\n        - Breakdown\
+        \ of earnings per shop\n        \n        Earnings are calculated from the\
+        \ `total_price` of completed bookings.\n        When a new shop is created,\
+        \ it will automatically be included in subsequent calls.\n        "
+      summary: Total earnings across all shops
+      tags:
+      - Clients
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientTotalEarnings'
+              examples:
+                ClientTotalEarnings:
+                  value:
+                    total_earnings: 15450.5
+                    total_advance_payments: 1545.05
+                    total_shops: 3
+                    total_completed_bookings: 156
+                    shops:
+                    - shop_id: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                      shop_name: Downtown Beauty Salon
+                      total_bookings: 100
+                      completed_bookings: 75
+                      total_earnings: 8500.0
+                      total_advance_payments: 850.0
+                    - shop_id: f299g4e2-a32e-5372-0fb6-e7dgbe073f3b
+                      shop_name: Uptown Spa
+                      total_bookings: 80
+                      completed_bookings: 56
+                      total_earnings: 4950.5
+                      total_advance_payments: 495.05
+                    - shop_id: g310h5f3-b43f-6483-1gc7-f8ehcf184g4c
+                      shop_name: Mall Salon
+                      total_bookings: 40
+                      completed_bookings: 25
+                      total_earnings: 2000.0
+                      total_advance_payments: 200.0
+                  summary: Client Total Earnings
+          description: ''
+        '404':
+          description: Client profile not found
   /api/v1/notifications/:
     get:
       operationId: v1_notifications_list
@@ -2072,7 +2907,10 @@ paths:
   /api/v1/scraper/{id}/:
     get:
       operationId: v1_scraper_retrieve
-      description: Get details of a specific scrape job including extracted data.
+      description: "Get details of a specific scrape job including extracted data.\n\
+        \        \nReturns HTTP 202 (Accepted) while job is still processing (pending/scraping/parsing/creating).\n\
+        Returns HTTP 200 (OK) when job is completed or failed.\nFrontend should poll\
+        \ this endpoint and show loading until HTTP 200 is returned."
       summary: Get scrape job details
       parameters:
       - in: path
@@ -2117,10 +2955,15 @@ paths:
                     shop_id: null
                     shop_name: null
                     client_email: owner@salon.com
+                    scraping_count: 3
+                    scraping_limit: 5
+                    scraping_remaining: 2
                     created_at: '2025-12-31T08:00:00Z'
                     updated_at: '2025-12-31T08:01:00Z'
                   summary: Completed Job
           description: ''
+        '202':
+          description: Job still processing - poll again
         '404':
           description: Scrape job not found
   /api/v1/scraper/{id}/cancel/:
@@ -2174,29 +3017,38 @@ paths:
             schema:
               $ref: '#/components/schemas/ScrapeConfirmRequest'
             examples:
-              ConfirmWithDefaults:
+              ConfirmWithExtractedData:
                 value:
-                  use_extracted: true
-                summary: Confirm with defaults
-                description: Use extracted data as-is
-              OverrideShopName:
+                  shop:
+                    name: Example Salon
+                    city: Los Angeles
+                    phone: '+12025551234'
+                summary: Confirm with extracted data
+                description: Use extracted shop data as-is
+              ConfirmWithEdits:
                 value:
-                  use_extracted: true
-                  shop_data:
-                    name: My Custom Shop Name
-                summary: Override shop name
-                description: Override specific fields
+                  shop:
+                    name: My Custom Salon Name
+                    city: New York
+                    phone: '+19005551234'
+                  services:
+                  - name: Premium Haircut
+                    price: 55
+                    duration_minutes: 45
+                summary: Confirm with edits
+                description: Modify extracted data before creating
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/ScrapeConfirmRequest'
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/ScrapeConfirmRequest'
+        required: true
       security:
       - BearerAuth: []
       - ClerkUserAuth: []
       responses:
-        '200':
+        '202':
           content:
             application/json:
               schema:
@@ -2208,6 +3060,26 @@ paths:
           description: Scrape job not found
         '409':
           description: Shop already created
+  /api/v1/scraper/limits/:
+    get:
+      operationId: v1_scraper_limits_retrieve
+      description: Get the current scraping usage and limits for the authenticated
+        client.
+      summary: Get scraping limits
+      tags:
+      - Scraper
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScrapingLimitsResponse'
+          description: ''
+        '400':
+          description: Client not found
   /api/v1/scraper/submit/:
     post:
       operationId: v1_scraper_submit_create
@@ -2241,37 +3113,16 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ScrapeJob'
-              examples:
-                CompletedJob:
-                  value:
-                    id: 1d65492d-0ec0-4916-b8f4-9718a89bb3d3
-                    url: https://example-salon.com
-                    platform: generic
-                    status: completed
-                    extracted_data:
-                      shop:
-                        name: Example Salon
-                        city: Los Angeles
-                        phone: '+12025551234'
-                      services:
-                      - name: Haircut
-                        price: 45
-                        duration_minutes: 60
-                      schedule:
-                      - day_of_week: monday
-                        start_time: 09:00
-                        end_time: '18:00'
-                    error_message: ''
-                    shop_id: null
-                    shop_name: null
-                    client_email: owner@salon.com
-                    created_at: '2025-12-31T08:00:00Z'
-                    updated_at: '2025-12-31T08:01:00Z'
-                  summary: Completed Job
+                $ref: '#/components/schemas/ScrapeSubmitResponse'
           description: ''
         '400':
           description: Invalid URL or client not found
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScrapingLimitError'
+          description: ''
         '409':
           description: Scraping job already in progress for this URL
   /api/v1/services/:
@@ -2545,6 +3396,268 @@ paths:
           description: Forbidden
         '404':
           description: Service not found
+  /api/v1/services/deals/:
+    get:
+      operationId: v1_services_deals_list
+      description: Get all deals/packages. Customers see only active deals. Salon
+        owners see only their deals.
+      summary: List deals
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+        description: Filter by active status
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Search in name and description
+      - in: query
+        name: shop
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: shop_id
+        schema:
+          type: string
+          format: uuid
+        description: Filter by shop ID
+      tags:
+      - Deals - Public
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDealList'
+          description: ''
+    post:
+      operationId: v1_services_deals_create
+      description: Create a new deal/package (salon owners only). Requires shop_id
+        in request data.
+      summary: Create deal
+      tags:
+      - Deals - Client
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DealCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DealCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DealCreateUpdateRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+          description: ''
+        '400':
+          description: Bad Request
+        '403':
+          description: Forbidden - Only salon owners can create deals
+        '404':
+          description: Shop not found
+  /api/v1/services/deals/{id}/:
+    get:
+      operationId: v1_services_deals_retrieve
+      description: Retrieve detailed information about a specific deal/package
+      summary: Get deal details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Deal.
+        required: true
+      tags:
+      - Deals - Public
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+          description: ''
+        '404':
+          description: Deal not found
+    put:
+      operationId: v1_services_deals_update
+      description: Update deal details (salon owners only)
+      summary: Update deal
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Deal.
+        required: true
+      tags:
+      - Deals - Client
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DealCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DealCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DealCreateUpdateRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+          description: ''
+        '400':
+          description: Bad Request
+        '403':
+          description: Forbidden
+        '404':
+          description: Deal not found
+    patch:
+      operationId: v1_services_deals_partial_update
+      description: Partially update deal details (salon owners only)
+      summary: Partial update deal
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Deal.
+        required: true
+      tags:
+      - Deals - Client
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDealCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDealCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDealCreateUpdateRequest'
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+          description: ''
+        '400':
+          description: Bad Request
+        '403':
+          description: Forbidden
+        '404':
+          description: Deal not found
+    delete:
+      operationId: v1_services_deals_destroy
+      description: Delete a deal/package (salon owners only)
+      summary: Delete deal
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Deal.
+        required: true
+      tags:
+      - Deals - Client
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+          description: ''
+        '403':
+          description: Forbidden
+        '404':
+          description: Deal not found
+  /api/v1/services/deals/{id}/toggle_active/:
+    patch:
+      operationId: v1_services_deals_toggle_active_partial_update
+      description: Enable or disable a deal (salon owners only)
+      summary: Toggle deal active status
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Deal.
+        required: true
+      tags:
+      - Deals - Client
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deal'
+          description: ''
+        '403':
+          description: Forbidden
+        '404':
+          description: Deal not found
   /api/v1/shops/:
     get:
       operationId: v1_shops_list
@@ -2605,37 +3718,53 @@ paths:
           description: ''
     post:
       operationId: v1_shops_create
-      description: Create a new shop (salon owners only)
+      description: "\n        Create a new shop (salon owners only).\n        \n \
+        \       You can optionally include a cover image during creation by sending\
+        \ multipart/form-data\n        with the 'cover_image' field.\n        "
       summary: Create shop
       tags:
       - Shops - Client
       requestBody:
         content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ShopCreateUpdateRequest'
-            examples:
-              CreateShopExample:
-                value:
-                  name: Sidra's Beauty Salon
-                  description: Premium beauty services
-                  address: 123 Main Street
-                  city: Karachi
-                  state: Sindh
-                  postal_code: '75500'
-                  country: Pakistan
-                  phone: +92-300-1234567
-                  email: info@sidrasbeauty.com
-                  timezone: Asia/Karachi
-                  is_active: true
-                summary: Create Shop Example
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/ShopCreateUpdateRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/ShopCreateUpdateRequest'
-        required: true
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                address:
+                  type: string
+                city:
+                  type: string
+                state:
+                  type: string
+                postal_code:
+                  type: string
+                country:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                website:
+                  type: string
+                timezone:
+                  type: string
+                is_active:
+                  type: boolean
+                cover_image:
+                  type: string
+                  format: binary
+                  description: Optional cover image (JPEG, PNG, or WebP, max 5MB)
+              required:
+              - name
+              - address
+              - city
+              - postal_code
+              - phone
+              - timezone
       security:
       - BearerAuth: []
       - ClerkUserAuth: []
@@ -2787,7 +3916,14 @@ paths:
           description: Shop not found
     delete:
       operationId: v1_shops_destroy
-      description: Delete a shop (salon owners only)
+      description: "\n        Delete a shop and ALL associated data (salon owners\
+        \ only).\n        \n        **This is a permanent action that:**\n       \
+        \ - Deletes ALL staff members from the shop\n        - Deletes staff user\
+        \ accounts from Clerk (they won't be able to log in anymore)\n        - Deletes\
+        \ all services and deals from Pinecone\n        - Deletes the shop from Pinecone\n\
+        \        - Deletes the shop and all related data from the database\n     \
+        \   \n        **Note:** Bookings are preserved for records but will show the\
+        \ shop/staff as deleted.\n        "
       summary: Delete shop
       parameters:
       - in: path
@@ -2807,8 +3943,23 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
-          description: ''
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  deleted_shop:
+                    type: string
+                  deleted_staff_count:
+                    type: integer
+                  deleted_clerk_users:
+                    type: integer
+                  deleted_services_count:
+                    type: integer
+                  deleted_deals_count:
+                    type: integer
+          description: Shop deleted successfully
         '403':
           description: Forbidden
         '404':
@@ -3425,10 +4576,13 @@ paths:
     delete:
       operationId: v1_staff_destroy
       description: "\n        Remove a staff member from a shop (salon owners only).\n\
-        \        \n        **Restrictions:**\n        - Cannot delete if staff has\
-        \ pending or confirmed bookings\n        - Reassign all active bookings to\
-        \ other staff first using `/bookings/{id}/reassign_staff/`\n        - Then\
-        \ the staff member can be deleted\n        "
+        \        \n        **This is a permanent action that:**\n        - Deletes\
+        \ the staff member profile from the shop\n        - Deletes the associated\
+        \ user account from the database\n        - Deletes the user from Clerk (they\
+        \ won't be able to log in anymore)\n        \n        **Restrictions:**\n\
+        \        - Cannot delete if staff has pending or confirmed bookings\n    \
+        \    - Reassign all active bookings to other staff first using `/bookings/{id}/reassign_staff/`\n\
+        \        - Then the staff member can be deleted\n        "
       summary: Delete staff member
       parameters:
       - in: path
@@ -3448,8 +4602,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SuccessResponse'
-          description: ''
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  deleted_staff:
+                    type: string
+                  deleted_user:
+                    type: boolean
+                  deleted_clerk_user:
+                    type: boolean
+          description: Staff deleted successfully
         '400':
           content:
             application/json:
@@ -4009,6 +5174,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookingListList'
+              examples:
+                PendingBooking(Payable):
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      customer_name: John Doe
+                      shop_name: Elegant Salon
+                      service_name: Haircut & Style
+                      deal_name: null
+                      item_name: Haircut & Style
+                      is_deal_booking: false
+                      staff_member_name: Sarah Johnson
+                      booking_datetime: '2026-01-15T14:00:00Z'
+                      duration_minutes: 45
+                      status: pending
+                      payment_status: pending
+                      can_pay: true
+                      client_secret: pi_3Abc123XYz_secret_def456
+                      payment_expires_at: '2026-01-14T12:45:00Z'
+                      time_remaining_seconds: 845
+                      payment_amount: 5.0
+                      total_price: '50.00'
+                      created_at: '2026-01-14T12:30:00Z'
+                  summary: Pending Booking (Payable)
+                ConfirmedBooking:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                      customer_name: Jane Smith
+                      shop_name: Elegant Salon
+                      service_name: null
+                      deal_name: Spa Package
+                      item_name: Spa Package
+                      is_deal_booking: true
+                      staff_member_name: null
+                      booking_datetime: '2026-01-16T10:00:00Z'
+                      duration_minutes: 90
+                      status: confirmed
+                      payment_status: paid
+                      can_pay: false
+                      client_secret: null
+                      payment_expires_at: null
+                      time_remaining_seconds: null
+                      payment_amount: null
+                      total_price: '120.00'
+                      created_at: '2026-01-13T09:00:00Z'
+                  summary: Confirmed Booking
           description: ''
   /api/v1/staff/dashboard/my-services/:
     get:
@@ -4093,6 +5311,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookingListList'
+              examples:
+                PendingBooking(Payable):
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      customer_name: John Doe
+                      shop_name: Elegant Salon
+                      service_name: Haircut & Style
+                      deal_name: null
+                      item_name: Haircut & Style
+                      is_deal_booking: false
+                      staff_member_name: Sarah Johnson
+                      booking_datetime: '2026-01-15T14:00:00Z'
+                      duration_minutes: 45
+                      status: pending
+                      payment_status: pending
+                      can_pay: true
+                      client_secret: pi_3Abc123XYz_secret_def456
+                      payment_expires_at: '2026-01-14T12:45:00Z'
+                      time_remaining_seconds: 845
+                      payment_amount: 5.0
+                      total_price: '50.00'
+                      created_at: '2026-01-14T12:30:00Z'
+                  summary: Pending Booking (Payable)
+                ConfirmedBooking:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                      customer_name: Jane Smith
+                      shop_name: Elegant Salon
+                      service_name: null
+                      deal_name: Spa Package
+                      item_name: Spa Package
+                      is_deal_booking: true
+                      staff_member_name: null
+                      booking_datetime: '2026-01-16T10:00:00Z'
+                      duration_minutes: 90
+                      status: confirmed
+                      payment_status: paid
+                      can_pay: false
+                      client_secret: null
+                      payment_expires_at: null
+                      time_remaining_seconds: null
+                      payment_amount: null
+                      total_price: '120.00'
+                      created_at: '2026-01-13T09:00:00Z'
+                  summary: Confirmed Booking
           description: ''
   /api/v1/staff/dashboard/upcoming-bookings/:
     get:
@@ -4135,6 +5406,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookingListList'
+              examples:
+                PendingBooking(Payable):
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                      customer_name: John Doe
+                      shop_name: Elegant Salon
+                      service_name: Haircut & Style
+                      deal_name: null
+                      item_name: Haircut & Style
+                      is_deal_booking: false
+                      staff_member_name: Sarah Johnson
+                      booking_datetime: '2026-01-15T14:00:00Z'
+                      duration_minutes: 45
+                      status: pending
+                      payment_status: pending
+                      can_pay: true
+                      client_secret: pi_3Abc123XYz_secret_def456
+                      payment_expires_at: '2026-01-14T12:45:00Z'
+                      time_remaining_seconds: 845
+                      payment_amount: 5.0
+                      total_price: '50.00'
+                      created_at: '2026-01-14T12:30:00Z'
+                  summary: Pending Booking (Payable)
+                ConfirmedBooking:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+                      customer_name: Jane Smith
+                      shop_name: Elegant Salon
+                      service_name: null
+                      deal_name: Spa Package
+                      item_name: Spa Package
+                      is_deal_booking: true
+                      staff_member_name: null
+                      booking_datetime: '2026-01-16T10:00:00Z'
+                      duration_minutes: 90
+                      status: confirmed
+                      payment_status: paid
+                      can_pay: false
+                      client_secret: null
+                      payment_expires_at: null
+                      time_remaining_seconds: null
+                      payment_amount: null
+                      total_price: '120.00'
+                      created_at: '2026-01-13T09:00:00Z'
+                  summary: Confirmed Booking
           description: ''
   /api/v1/staff/resend_verification_link/:
     post:
@@ -4231,6 +5555,133 @@ paths:
           description: Sync completed
         '403':
           description: Forbidden
+  /api/v1/subscriptions/cancel/:
+    post:
+      operationId: v1_subscriptions_cancel_create
+      description: Cancel subscription (at period end or immediately)
+      summary: Cancel subscription
+      tags:
+      - Subscriptions - Client
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionCancelRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubscriptionCancelRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubscriptionCancelRequest'
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          description: Subscription cancelled
+        '400':
+          description: Bad Request
+        '404':
+          description: No active subscription
+  /api/v1/subscriptions/checkout/:
+    post:
+      operationId: v1_subscriptions_checkout_create
+      description: Create Stripe checkout session for subscription purchase. Validates
+        upgrade/downgrade rules.
+      summary: Create checkout session
+      tags:
+      - Subscriptions - Client
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutSessionRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CheckoutSessionRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CheckoutSessionRequestRequest'
+        required: true
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutError'
+          description: ''
+        '403':
+          description: Forbidden - Clients only
+  /api/v1/subscriptions/current/:
+    get:
+      operationId: v1_subscriptions_current_retrieve
+      description: Get details of user's current active subscription
+      summary: Get current subscription
+      tags:
+      - Subscriptions - Client
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentSubscription'
+          description: ''
+        '404':
+          description: No active subscription
+  /api/v1/subscriptions/history/:
+    get:
+      operationId: v1_subscriptions_history_list
+      description: Get history of all subscription changes
+      summary: Get subscription history
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Subscriptions - Client
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSubscriptionHistoryList'
+          description: ''
   /api/v1/subscriptions/payments/:
     get:
       operationId: v1_subscriptions_payments_list
@@ -4414,136 +5865,9 @@ paths:
           description: Bad Request or Invalid Price ID
         '403':
           description: Forbidden - Admin only
-  /api/v1/subscriptions/subscriptions/cancel/:
+  /api/v1/subscriptions/portal/:
     post:
-      operationId: v1_subscriptions_subscriptions_cancel_create
-      description: Cancel subscription (at period end or immediately)
-      summary: Cancel subscription
-      tags:
-      - Subscriptions - Client
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SubscriptionCancelRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/SubscriptionCancelRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/SubscriptionCancelRequest'
-      security:
-      - BearerAuth: []
-      - ClerkUserAuth: []
-      responses:
-        '200':
-          description: Subscription cancelled
-        '400':
-          description: Bad Request
-        '404':
-          description: No active subscription
-  /api/v1/subscriptions/subscriptions/checkout/:
-    post:
-      operationId: v1_subscriptions_subscriptions_checkout_create
-      description: Create Stripe checkout session for subscription purchase. Validates
-        upgrade/downgrade rules.
-      summary: Create checkout session
-      tags:
-      - Subscriptions - Client
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CheckoutSessionRequestRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/CheckoutSessionRequestRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/CheckoutSessionRequestRequest'
-        required: true
-      security:
-      - BearerAuth: []
-      - ClerkUserAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CheckoutSessionResponse'
-          description: ''
-        '400':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CheckoutError'
-          description: ''
-        '403':
-          description: Forbidden - Clients only
-  /api/v1/subscriptions/subscriptions/current/:
-    get:
-      operationId: v1_subscriptions_subscriptions_current_retrieve
-      description: Get details of user's current active subscription
-      summary: Get current subscription
-      tags:
-      - Subscriptions - Client
-      security:
-      - BearerAuth: []
-      - ClerkUserAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CurrentSubscription'
-          description: ''
-        '404':
-          description: No active subscription
-  /api/v1/subscriptions/subscriptions/history/:
-    get:
-      operationId: v1_subscriptions_subscriptions_history_list
-      description: Get history of all subscription changes
-      summary: Get subscription history
-      parameters:
-      - name: ordering
-        required: false
-        in: query
-        description: Which field to use when ordering the results.
-        schema:
-          type: string
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
-        schema:
-          type: integer
-      - name: page_size
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
-      - name: search
-        required: false
-        in: query
-        description: A search term.
-        schema:
-          type: string
-      tags:
-      - Subscriptions - Client
-      security:
-      - BearerAuth: []
-      - ClerkUserAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedSubscriptionHistoryList'
-          description: ''
-  /api/v1/subscriptions/subscriptions/portal/:
-    post:
-      operationId: v1_subscriptions_subscriptions_portal_create
+      operationId: v1_subscriptions_portal_create
       description: Create Stripe billing portal session for subscription management
       summary: Access billing portal
       tags:
@@ -4574,6 +5898,261 @@ paths:
           description: No Stripe customer found
         '403':
           description: Forbidden - Clients only
+  /api/v1/widgets/shop/{shop_id}/:
+    get:
+      operationId: v1_widgets_shop_retrieve
+      description: "\n        Get or update widget configuration for a specific shop\
+        \ (shop owners only).\n        \n        **GET:** Returns widget configuration.\
+        \ Auto-creates with defaults if doesn't exist.\n        **PATCH:** Updates\
+        \ widget configuration with provided fields.\n        \n        For PATCH\
+        \ requests, you can upload images using multipart/form-data:\n        - `banner_image`:\
+        \ Optional banner image file (JPEG, PNG, or WebP, max 5MB)\n        - `logo`:\
+        \ Optional logo image file (JPEG, PNG, or WebP, max 5MB)\n        \n     \
+        \   Other fields can be included as form fields or JSON body.\n        "
+      summary: Get or update widget configuration by shop ID
+      parameters:
+      - in: path
+        name: shop_id
+        schema:
+          type: string
+          format: uuid
+        description: Shop ID to get/update widget configuration for
+        required: true
+      tags:
+      - Widget - Client
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WidgetConfiguration'
+              examples:
+                GETResponse:
+                  value:
+                    id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                    shop: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    shop_id: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    shop_name: Elegant Beauty Salon
+                    layout: card
+                    primary_color: '#2563EB'
+                    widget_width: 380
+                    border_radius: 12
+                    banner_image_url: http://localhost:8004/api/media/widgets/banners/abc123.jpg
+                    logo_url: http://localhost:8004/api/media/widgets/logos/def456.png
+                    button_text: Book Now
+                    show_logo: true
+                    text_align: center
+                    is_active: true
+                    created_at: '2024-12-01T10:00:00Z'
+                    updated_at: '2024-12-10T15:30:00Z'
+                  summary: GET Response
+                PATCHResponse:
+                  value:
+                    id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                    shop: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    layout: landscape
+                    primary_color: '#FF5733'
+                    banner_image_url: http://localhost:8004/api/media/widgets/banners/abc123.jpg
+                    button_text: Reserve Your Spot
+                    updated_at: '2024-12-13T17:00:00Z'
+                  summary: PATCH Response
+          description: ''
+        '400':
+          description: Bad Request - Invalid file type or size
+        '403':
+          description: Forbidden - You don't own this shop
+        '404':
+          description: Shop not found
+    patch:
+      operationId: v1_widgets_shop_partial_update
+      description: "\n        Get or update widget configuration for a specific shop\
+        \ (shop owners only).\n        \n        **GET:** Returns widget configuration.\
+        \ Auto-creates with defaults if doesn't exist.\n        **PATCH:** Updates\
+        \ widget configuration with provided fields.\n        \n        For PATCH\
+        \ requests, you can upload images using multipart/form-data:\n        - `banner_image`:\
+        \ Optional banner image file (JPEG, PNG, or WebP, max 5MB)\n        - `logo`:\
+        \ Optional logo image file (JPEG, PNG, or WebP, max 5MB)\n        \n     \
+        \   Other fields can be included as form fields or JSON body.\n        "
+      summary: Get or update widget configuration by shop ID
+      parameters:
+      - in: path
+        name: shop_id
+        schema:
+          type: string
+          format: uuid
+        description: Shop ID to get/update widget configuration for
+        required: true
+      tags:
+      - Widget - Client
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                layout:
+                  type: string
+                  enum:
+                  - card
+                  - landscape
+                  - minimal
+                primary_color:
+                  type: string
+                  description: 'Hex color (e.g., #2563EB)'
+                widget_width:
+                  type: integer
+                  minimum: 280
+                  maximum: 800
+                border_radius:
+                  type: integer
+                  maximum: 50
+                custom_title:
+                  type: string
+                custom_description:
+                  type: string
+                button_text:
+                  type: string
+                  maxLength: 50
+                show_logo:
+                  type: boolean
+                text_align:
+                  type: string
+                  enum:
+                  - left
+                  - center
+                  - right
+                is_active:
+                  type: boolean
+                banner_image:
+                  type: string
+                  format: binary
+                  description: Optional banner image (JPEG, PNG, or WebP, max 5MB)
+                logo:
+                  type: string
+                  format: binary
+                  description: Optional logo image (JPEG, PNG, or WebP, max 5MB)
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WidgetConfiguration'
+              examples:
+                GETResponse:
+                  value:
+                    id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                    shop: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    shop_id: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    shop_name: Elegant Beauty Salon
+                    layout: card
+                    primary_color: '#2563EB'
+                    widget_width: 380
+                    border_radius: 12
+                    banner_image_url: http://localhost:8004/api/media/widgets/banners/abc123.jpg
+                    logo_url: http://localhost:8004/api/media/widgets/logos/def456.png
+                    button_text: Book Now
+                    show_logo: true
+                    text_align: center
+                    is_active: true
+                    created_at: '2024-12-01T10:00:00Z'
+                    updated_at: '2024-12-10T15:30:00Z'
+                  summary: GET Response
+                PATCHResponse:
+                  value:
+                    id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+                    shop: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    layout: landscape
+                    primary_color: '#FF5733'
+                    banner_image_url: http://localhost:8004/api/media/widgets/banners/abc123.jpg
+                    button_text: Reserve Your Spot
+                    updated_at: '2024-12-13T17:00:00Z'
+                  summary: PATCH Response
+          description: ''
+        '400':
+          description: Bad Request - Invalid file type or size
+        '403':
+          description: Forbidden - You don't own this shop
+        '404':
+          description: Shop not found
+  /api/v1/widgets/shop/{shop_id}/preview/:
+    post:
+      operationId: v1_widgets_shop_preview_create
+      description: "\n        Generate preview data with temporary settings without\
+        \ saving (shop owners only).\n        \n        This endpoint accepts optional\
+        \ widget settings and returns preview data\n        combining the saved configuration\
+        \ with temporary overrides.\n        Useful for live preview in the widget\
+        \ configuration UI.\n        "
+      summary: Preview widget with temporary settings
+      parameters:
+      - in: path
+        name: shop_id
+        schema:
+          type: string
+          format: uuid
+        description: Shop ID to preview widget for
+        required: true
+      tags:
+      - Widget - Client
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WidgetPreviewRequestRequest'
+            examples:
+              PreviewRequest:
+                value:
+                  primary_color: '#FF5733'
+                  layout: minimal
+                  button_text: Reserve Now
+                summary: Preview Request
+                description: Preview with temporary color, layout, and button text
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WidgetPreviewRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WidgetPreviewRequestRequest'
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WidgetPreviewResponse'
+              examples:
+                CompletePreviewResponse:
+                  value:
+                    preview_url: http://localhost:8004/api/v1/widgets/shop/e188f3d1-921d-4261-9ea5-d6cfad62962a/preview/
+                    preview_html: |-
+                      <div class="widget-preview" style="width: 380px; border-radius: 12px; background-color: #ffffff; border: 2px solid #FF5733; padding: 20px; text-align: center;">
+                        <h3>Elegant Beauty Salon</h3>
+                        <p>Premium beauty services</p>
+                        <button style="background-color: #FF5733; color: white; padding: 10px 20px; border: none; border-radius: 12px;">Reserve Now</button>
+                      </div>
+                    settings:
+                      layout: minimal
+                      primary_color: '#FF5733'
+                      widget_width: 380
+                      border_radius: 12
+                      button_text: Reserve Now
+                      show_logo: true
+                      text_align: center
+                  summary: Complete Preview Response
+          description: ''
+        '400':
+          description: Bad Request - Invalid settings
+        '403':
+          description: Forbidden - You don't own this shop
+        '404':
+          description: Shop or widget configuration not found
 components:
   schemas:
     ActionEnum:
@@ -4669,7 +6248,8 @@ components:
       - portal_url
     Booking:
       type: object
-      description: Detailed booking serializer for output
+      description: Detailed booking serializer for output - supports both service
+        and deal bookings
       properties:
         id:
           type: string
@@ -4696,16 +6276,34 @@ components:
         service:
           type: string
           format: uuid
+          nullable: true
+          description: Service booked (NULL for deal bookings or if service was deleted)
         service_name:
           type: string
           readOnly: true
+          nullable: true
         service_price:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
           readOnly: true
-        service_duration:
-          type: integer
+          nullable: true
+        deal:
+          type: string
+          format: uuid
+          nullable: true
+          description: Deal/package booked (NULL for service bookings)
+        deal_name:
+          type: string
+          readOnly: true
+          nullable: true
+        deal_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+        deal_items:
           readOnly: true
         time_slot:
           type: string
@@ -4717,7 +6315,7 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: Staff member assigned to this booking
+          description: Staff member assigned to this booking (NULL for deal bookings)
         staff_member_name:
           type: string
           readOnly: true
@@ -4725,6 +6323,11 @@ components:
         booking_datetime:
           type: string
           format: date-time
+        duration_minutes:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Duration of the booking in minutes (from service or deal duration)
         status:
           $ref: '#/components/schemas/Status728Enum'
         total_price:
@@ -4734,6 +6337,9 @@ components:
           readOnly: true
         notes:
           type: string
+        is_deal_booking:
+          type: boolean
+          readOnly: true
         cancellation_reason:
           type: string
         cancelled_at:
@@ -4756,9 +6362,11 @@ components:
       - customer
       - customer_email
       - customer_name
+      - deal_items
+      - deal_name
+      - deal_price
       - id
-      - service
-      - service_duration
+      - is_deal_booking
       - service_name
       - service_price
       - shop
@@ -4768,7 +6376,8 @@ components:
       - updated_at
     BookingList:
       type: object
-      description: Simplified booking serializer for lists
+      description: Simplified booking serializer for lists - supports both service
+        and deal bookings
       properties:
         id:
           type: string
@@ -4783,6 +6392,17 @@ components:
         service_name:
           type: string
           readOnly: true
+          nullable: true
+        deal_name:
+          type: string
+          readOnly: true
+          nullable: true
+        item_name:
+          type: string
+          readOnly: true
+        is_deal_booking:
+          type: boolean
+          readOnly: true
         staff_member_name:
           type: string
           readOnly: true
@@ -4790,8 +6410,36 @@ components:
         booking_datetime:
           type: string
           format: date-time
+        duration_minutes:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Duration of the booking in minutes (from service or deal duration)
         status:
           $ref: '#/components/schemas/Status728Enum'
+        payment_status:
+          type: string
+          readOnly: true
+        can_pay:
+          type: string
+          readOnly: true
+          description: True if booking can be paid (pending and within 15-min window)
+        client_secret:
+          type: string
+          readOnly: true
+          description: Stripe client_secret for payment (null if not payable)
+        payment_expires_at:
+          type: string
+          readOnly: true
+          description: When payment window expires
+        time_remaining_seconds:
+          type: string
+          readOnly: true
+          description: Seconds remaining to pay
+        payment_amount:
+          type: string
+          readOnly: true
+          description: Advance payment amount
         total_price:
           type: string
           format: decimal
@@ -4802,38 +6450,202 @@ components:
           readOnly: true
       required:
       - booking_datetime
+      - can_pay
+      - client_secret
       - created_at
       - customer_name
+      - deal_name
       - id
+      - is_deal_booking
+      - item_name
+      - payment_amount
+      - payment_expires_at
+      - payment_status
       - service_name
       - shop_name
       - staff_member_name
+      - time_remaining_seconds
       - total_price
     BookingStats:
       type: object
-      description: Output serializer for booking statistics
+      description: Output serializer for shop booking statistics (salon owners)
       properties:
         total_bookings:
           type: integer
-        pending_bookings:
+          description: Total number of bookings
+        pending:
           type: integer
-        confirmed_bookings:
+          description: Pending bookings count
+        confirmed:
           type: integer
-        completed_bookings:
+          description: Confirmed bookings count
+        completed:
           type: integer
-        cancelled_bookings:
+          description: Completed bookings count
+        cancelled:
           type: integer
+          description: Cancelled bookings count
+        no_show:
+          type: integer
+          description: No-show bookings count
         total_revenue:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Total revenue from completed bookings (same as total_earnings)
+        total_earnings:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Total earnings from completed bookings at this shop
+        total_advance_payments:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Total advance payments received (deposits)
       required:
-      - cancelled_bookings
-      - completed_bookings
-      - confirmed_bookings
-      - pending_bookings
+      - cancelled
+      - completed
+      - confirmed
+      - no_show
+      - pending
+      - total_advance_payments
       - total_bookings
+      - total_earnings
       - total_revenue
+    BookingWithPaymentResponse:
+      type: object
+      description: |-
+        Complete booking response including payment information.
+
+        This serializer documents the full response structure returned by
+        booking creation endpoints when they include payment details.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        customer:
+          type: string
+          format: uuid
+          readOnly: true
+        customer_name:
+          type: string
+          readOnly: true
+        customer_email:
+          type: string
+          format: email
+          readOnly: true
+        shop:
+          type: string
+          format: uuid
+          readOnly: true
+        shop_name:
+          type: string
+          readOnly: true
+        service:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        service_name:
+          type: string
+          readOnly: true
+          nullable: true
+        service_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+        deal:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        deal_name:
+          type: string
+          readOnly: true
+          nullable: true
+        deal_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+          nullable: true
+        deal_items:
+          readOnly: true
+        staff_member:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        staff_member_name:
+          type: string
+          readOnly: true
+          nullable: true
+        booking_datetime:
+          type: string
+          format: date-time
+          readOnly: true
+        duration_minutes:
+          type: integer
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+        payment_status:
+          type: string
+          readOnly: true
+        total_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          readOnly: true
+        notes:
+          type: string
+          readOnly: true
+        is_deal_booking:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        payment:
+          allOf:
+          - $ref: '#/components/schemas/PaymentInfo'
+          description: Payment information for this booking
+      required:
+      - booking_datetime
+      - created_at
+      - customer
+      - customer_email
+      - customer_name
+      - deal
+      - deal_items
+      - deal_name
+      - deal_price
+      - duration_minutes
+      - id
+      - is_deal_booking
+      - notes
+      - payment
+      - payment_status
+      - service
+      - service_name
+      - service_price
+      - shop
+      - shop_name
+      - staff_member
+      - staff_member_name
+      - status
+      - total_price
+      - updated_at
     BulkScheduleCreateRequest:
       type: object
       description: |-
@@ -5154,6 +6966,144 @@ components:
       - checkout_url
       - message
       - session_id
+    Client:
+      type: object
+      description: Serializer for Client model
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          readOnly: true
+        user_email:
+          type: string
+          format: email
+          readOnly: true
+        user_name:
+          type: string
+          readOnly: true
+        business_name:
+          type: string
+          maxLength: 255
+        phone:
+          type: string
+          maxLength: 20
+        business_address:
+          type: string
+        tax_id:
+          type: string
+          maxLength: 50
+        subscription_status:
+          $ref: '#/components/schemas/SubscriptionStatusEnum'
+        subscription_plan:
+          type: string
+          maxLength: 50
+        subscription_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        max_shops:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        scraping_limit:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Maximum number of websites that can be scraped
+        scraping_count:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Current count of completed scrape jobs
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - business_name
+      - created_at
+      - id
+      - phone
+      - updated_at
+      - user
+      - user_email
+      - user_name
+    ClientCreateUpdate:
+      type: object
+      description: Serializer for creating/updating client profile
+      properties:
+        business_name:
+          type: string
+          maxLength: 255
+        phone:
+          type: string
+          maxLength: 20
+        business_address:
+          type: string
+        tax_id:
+          type: string
+          maxLength: 50
+      required:
+      - business_name
+      - phone
+    ClientCreateUpdateRequest:
+      type: object
+      description: Serializer for creating/updating client profile
+      properties:
+        business_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        phone:
+          type: string
+          minLength: 1
+          maxLength: 20
+        business_address:
+          type: string
+        tax_id:
+          type: string
+          maxLength: 50
+      required:
+      - business_name
+      - phone
+    ClientTotalEarnings:
+      type: object
+      description: Response serializer for client's total earnings across all shops
+      properties:
+        total_earnings:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Grand total earnings from all shops
+        total_advance_payments:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Grand total of advance payments received (deposits)
+        total_shops:
+          type: integer
+          description: Number of shops owned
+        total_completed_bookings:
+          type: integer
+          description: Total completed bookings across all shops
+        shops:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShopEarnings'
+          description: Earnings breakdown per shop
+      required:
+      - shops
+      - total_advance_payments
+      - total_completed_bookings
+      - total_earnings
+      - total_shops
     CurrentSubscription:
       type: object
       description: Detailed serializer for current subscription with additional context.
@@ -5207,6 +7157,43 @@ components:
       - plan_name
       - shops_count
       - status
+    CustomerBookingStats:
+      type: object
+      description: Output serializer for customer booking statistics
+      properties:
+        upcoming:
+          type: integer
+          description: Number of upcoming bookings (pending/confirmed)
+        past_due:
+          type: integer
+          description: Past bookings still pending/confirmed
+        completed:
+          type: integer
+          description: Completed bookings count
+        cancelled:
+          type: integer
+          description: Cancelled bookings count
+        total:
+          type: integer
+          description: Total number of bookings
+        total_spending:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Total amount spent on completed bookings (full service prices)
+        total_advance_payments:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Total advance payments made (deposits)
+      required:
+      - cancelled
+      - completed
+      - past_due
+      - total
+      - total_advance_payments
+      - total_spending
+      - upcoming
     DayNameEnum:
       enum:
       - monday
@@ -5225,6 +7212,183 @@ components:
         * `friday` - Friday
         * `saturday` - Saturday
         * `sunday` - Sunday
+    Deal:
+      type: object
+      description: Response serializer for Deal model
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        shop:
+          type: string
+          format: uuid
+          readOnly: true
+        shop_name:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        duration_minutes:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Duration in minutes for deal booking slots
+        included_items: {}
+        items_count:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - items_count
+      - name
+      - price
+      - shop
+      - shop_name
+      - updated_at
+    DealAvailability:
+      type: object
+      description: Output serializer for deal availability check.
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        deal_name:
+          type: string
+        deal_duration_minutes:
+          type: integer
+        date:
+          type: string
+          format: date
+        shop_open:
+          type: string
+          format: time
+          nullable: true
+        shop_close:
+          type: string
+          format: time
+          nullable: true
+        max_concurrent:
+          type: integer
+          description: Max concurrent deal bookings for shop
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/DealSlot'
+      required:
+      - date
+      - deal_duration_minutes
+      - deal_id
+      - deal_name
+      - max_concurrent
+      - shop_close
+      - shop_open
+      - slots
+    DealBookingCreateRequest:
+      type: object
+      description: |-
+        Input serializer for creating deal bookings.
+
+        Deal bookings don't require staff - just based on shop hours and capacity.
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+          description: UUID of the deal to book
+        date:
+          type: string
+          format: date
+          description: Date of the booking (YYYY-MM-DD)
+        start_time:
+          type: string
+          format: time
+          description: Start time for the booking (HH:MM)
+        notes:
+          type: string
+          description: Optional notes for the booking
+          maxLength: 500
+      required:
+      - date
+      - deal_id
+      - start_time
+    DealCreateUpdateRequest:
+      type: object
+      description: Input serializer for creating/updating deals
+      properties:
+        shop_id:
+          type: string
+          format: uuid
+          writeOnly: true
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        duration_minutes:
+          type: integer
+          maximum: 480
+          minimum: 15
+          default: 60
+          description: Duration in minutes for deal booking slots (default 60)
+        included_items:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
+          description: List of services/items included in this deal
+        is_active:
+          type: boolean
+      required:
+      - included_items
+      - name
+      - price
+    DealSlot:
+      type: object
+      description: Output serializer for deal availability slots with capacity info.
+      properties:
+        start_time:
+          type: string
+          format: date-time
+          description: Slot start time
+        end_time:
+          type: string
+          format: date-time
+          description: Slot end time
+        slots_left:
+          type: integer
+          description: Number of available slots (out of max concurrent)
+        is_available:
+          type: boolean
+          description: True if at least 1 slot is available
+      required:
+      - end_time
+      - is_available
+      - slots_left
+      - start_time
     DeleteNotificationResponse:
       type: object
       description: Response serializer for deleting notifications.
@@ -5399,10 +7563,80 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ExtractedServiceData'
+        deals:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtractedDealData'
         schedule:
           type: array
           items:
             $ref: '#/components/schemas/ExtractedScheduleData'
+    ExtractedDealData:
+      type: object
+      description: Serializer for extracted deal data
+      properties:
+        name:
+          type: string
+          description: Deal/package name
+          maxLength: 255
+        description:
+          type: string
+          description: Deal description
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Bundle price
+        duration_minutes:
+          type: integer
+          maximum: 480
+          minimum: 15
+          default: 60
+          description: Total duration for the deal booking in minutes (default 60)
+        included_items:
+          type: array
+          items:
+            type: string
+            maxLength: 255
+          description: List of services/items included in the deal
+      required:
+      - included_items
+      - name
+      - price
+    ExtractedDealDataRequest:
+      type: object
+      description: Serializer for extracted deal data
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Deal/package name
+          maxLength: 255
+        description:
+          type: string
+          description: Deal description
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Bundle price
+        duration_minutes:
+          type: integer
+          maximum: 480
+          minimum: 15
+          default: 60
+          description: Total duration for the deal booking in minutes (default 60)
+        included_items:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
+          description: List of services/items included in the deal
+      required:
+      - included_items
+      - name
+      - price
     ExtractedScheduleData:
       type: object
       description: Serializer for extracted schedule data
@@ -6111,6 +8345,52 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BookingList'
+    PaginatedClientList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Client'
+    PaginatedDealList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deal'
     PaginatedHolidayList:
       type: object
       required:
@@ -6376,6 +8656,56 @@ components:
         is_sync_enabled:
           type: boolean
           description: Enable or disable automatic sync
+    PatchedClientCreateUpdateRequest:
+      type: object
+      description: Serializer for creating/updating client profile
+      properties:
+        business_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        phone:
+          type: string
+          minLength: 1
+          maxLength: 20
+        business_address:
+          type: string
+        tax_id:
+          type: string
+          maxLength: 50
+    PatchedDealCreateUpdateRequest:
+      type: object
+      description: Input serializer for creating/updating deals
+      properties:
+        shop_id:
+          type: string
+          format: uuid
+          writeOnly: true
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        duration_minutes:
+          type: integer
+          maximum: 480
+          minimum: 15
+          default: 60
+          description: Duration in minutes for deal booking slots (default 60)
+        included_items:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
+          description: List of services/items included in this deal
+        is_active:
+          type: boolean
     PatchedNotificationPreferenceRequest:
       type: object
       description: Serializer for user notification preferences.
@@ -6484,8 +8814,8 @@ components:
           maxLength: 200
         cover_image_url:
           type: string
-          format: uri
-          maxLength: 200
+          description: Cover image URL or base64 encoded image. Accepts any string
+            format until GCP bucket is implemented.
         timezone:
           type: string
           minLength: 1
@@ -6631,6 +8961,98 @@ components:
       - subscription_plan
       - transaction_id
       - user_email
+    PaymentError:
+      type: object
+      description: Error response serializer for payment-info endpoint.
+      properties:
+        error:
+          type: string
+          description: Error message
+        expired_at:
+          type: string
+          format: date-time
+          description: When payment window expired (if applicable)
+        message:
+          type: string
+          description: Additional user-friendly message
+      required:
+      - error
+    PaymentInfo:
+      type: object
+      description: |-
+        Payment information returned with booking creation.
+
+        Included in the booking response to indicate whether payment is required
+        and provide the client_secret for Stripe.js integration.
+      properties:
+        required:
+          type: boolean
+          description: Whether advance payment is required for this booking
+        message:
+          type: string
+          description: Message about payment status or requirements
+        client_secret:
+          type: string
+          description: Stripe PaymentIntent client secret for frontend payment processing
+        payment_intent_id:
+          type: string
+          description: Stripe PaymentIntent ID
+        amount:
+          type: number
+          format: double
+          description: Advance payment amount in dollars
+        amount_cents:
+          type: integer
+          description: Advance payment amount in cents
+        currency:
+          type: string
+          description: Payment currency (e.g., 'usd')
+      required:
+      - message
+      - required
+    PaymentRetrieval:
+      type: object
+      description: |-
+        Response serializer for retrieving payment info for an existing booking.
+        Used by GET /bookings/{id}/payment-info/ endpoint.
+      properties:
+        booking_id:
+          type: string
+          format: uuid
+          description: Booking ID
+        client_secret:
+          type: string
+          description: Stripe PaymentIntent client secret for payment processing
+        payment_intent_id:
+          type: string
+          description: Stripe PaymentIntent ID
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Advance payment amount
+        currency:
+          type: string
+          description: Payment currency
+        expires_at:
+          type: string
+          format: date-time
+          description: When the payment window expires
+        time_remaining_seconds:
+          type: integer
+          description: Seconds remaining in payment window
+        can_pay:
+          type: boolean
+          description: True if payment window is still open
+      required:
+      - amount
+      - booking_id
+      - can_pay
+      - client_secret
+      - currency
+      - expires_at
+      - payment_intent_id
+      - time_remaining_seconds
     ResendVerificationLinkRequest:
       type: object
       description: Serializer for resend verification link request
@@ -6649,28 +9071,33 @@ components:
       - staff_id
     ScrapeConfirmRequest:
       type: object
-      description: Request serializer for confirming and creating shop from scrape
-        job
+      description: |-
+        Request serializer for confirming and creating shop from scrape job.
+
+        Always requires shop data (either extracted or edited by owner).
+        Pass the extracted data as-is or modify it before confirming.
       properties:
-        use_extracted:
-          type: boolean
-          default: true
-          description: If true, use extracted data as base. If false, only use provided
-            data.
         shop:
           allOf:
           - $ref: '#/components/schemas/ExtractedShopDataRequest'
-          description: Override extracted shop data
+          description: Shop data (extracted or edited). Name is required.
         services:
           type: array
           items:
             $ref: '#/components/schemas/ExtractedServiceDataRequest'
-          description: Override extracted services
+          description: Services to create (pass extracted or edited list)
         schedule:
           type: array
           items:
             $ref: '#/components/schemas/ExtractedScheduleDataRequest'
-          description: Override extracted schedule
+          description: Schedule entries (pass extracted or edited list)
+        deals:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtractedDealDataRequest'
+          description: Deals to create (pass extracted or edited list)
+      required:
+      - shop
     ScrapeConfirmResponse:
       type: object
       description: Response serializer for confirm endpoint
@@ -6678,24 +9105,28 @@ components:
         success:
           type: boolean
           description: Whether shop was created successfully
-        shop_id:
+        message:
+          type: string
+          description: Status message
+        job_id:
           type: string
           format: uuid
-          description: ID of the created shop
-        shop_name:
+          description: Scrape job ID
+        status:
           type: string
-          description: Name of the created shop
-        services_created:
+          description: Current job status
+        services_count:
           type: integer
-          description: Number of services created
-        schedules_created:
+          description: Number of services to be created
+        deals_count:
           type: integer
-          description: Number of schedule entries created
+          description: Number of deals to be created
       required:
-      - schedules_created
-      - services_created
-      - shop_id
-      - shop_name
+      - deals_count
+      - job_id
+      - message
+      - services_count
+      - status
       - success
     ScrapeJob:
       type: object
@@ -6717,7 +9148,7 @@ components:
             generic
         status:
           allOf:
-          - $ref: '#/components/schemas/Status82bEnum'
+          - $ref: '#/components/schemas/Status67cEnum'
           readOnly: true
         extracted_data:
           allOf:
@@ -6740,6 +9171,15 @@ components:
           type: string
           format: email
           readOnly: true
+        scraping_count:
+          type: integer
+          readOnly: true
+        scraping_limit:
+          type: integer
+          readOnly: true
+        scraping_remaining:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -6755,6 +9195,9 @@ components:
       - extracted_data
       - id
       - platform
+      - scraping_count
+      - scraping_limit
+      - scraping_remaining
       - shop_id
       - shop_name
       - status
@@ -6779,7 +9222,7 @@ components:
             generic
           maxLength: 50
         status:
-          $ref: '#/components/schemas/Status82bEnum'
+          $ref: '#/components/schemas/Status67cEnum'
         created_at:
           type: string
           format: date-time
@@ -6800,6 +9243,84 @@ components:
           maxLength: 2000
       required:
       - url
+    ScrapeSubmitResponse:
+      type: object
+      description: Response serializer for submit endpoint
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Scrape job ID
+        url:
+          type: string
+          format: uri
+          description: URL being scraped
+        platform:
+          type: string
+          description: Detected platform (google_business, yelp, generic, etc.)
+        status:
+          type: string
+          description: Job status (pending, scraping, parsing, completed, failed)
+        scraping_count:
+          type: integer
+          description: Number of completed scrape jobs
+        scraping_limit:
+          type: integer
+          description: Maximum allowed scrape jobs
+        scraping_remaining:
+          type: integer
+          description: Remaining scraping quota
+        created_at:
+          type: string
+          format: date-time
+          description: Job creation time
+      required:
+      - created_at
+      - id
+      - platform
+      - scraping_count
+      - scraping_limit
+      - scraping_remaining
+      - status
+      - url
+    ScrapingLimitError:
+      type: object
+      description: Response serializer for scraping limit exceeded error
+      properties:
+        error:
+          type: string
+          description: Error message
+        scraping_count:
+          type: integer
+          description: Number of completed scrape jobs
+        scraping_limit:
+          type: integer
+          description: Maximum allowed scrape jobs
+        scraping_remaining:
+          type: integer
+          description: Remaining scraping quota (always 0)
+      required:
+      - error
+      - scraping_count
+      - scraping_limit
+      - scraping_remaining
+    ScrapingLimitsResponse:
+      type: object
+      description: Response serializer for GET /limits/ endpoint
+      properties:
+        scraping_count:
+          type: integer
+          description: Number of completed scrape jobs
+        scraping_limit:
+          type: integer
+          description: Maximum allowed scrape jobs
+        scraping_remaining:
+          type: integer
+          description: Remaining scraping quota
+      required:
+      - scraping_count
+      - scraping_limit
+      - scraping_remaining
     Service:
       type: object
       description: Serializer for Service model
@@ -6999,8 +9520,8 @@ components:
           maxLength: 200
         cover_image_url:
           type: string
-          format: uri
-          maxLength: 200
+          description: Cover image URL or base64 encoded image. Accepts any string
+            format until GCP bucket is implemented.
         timezone:
           type: string
           description: Shop timezone (IANA timezone, e.g., Asia/Karachi, Europe/London,
@@ -7078,8 +9599,8 @@ components:
           maxLength: 200
         cover_image_url:
           type: string
-          format: uri
-          maxLength: 200
+          description: Cover image URL or base64 encoded image. Accepts any string
+            format until GCP bucket is implemented.
         timezone:
           type: string
           minLength: 1
@@ -7146,8 +9667,8 @@ components:
           maxLength: 200
         cover_image_url:
           type: string
-          format: uri
-          maxLength: 200
+          description: Cover image URL or base64 encoded image. Accepts any string
+            format until GCP bucket is implemented.
         timezone:
           type: string
           description: Shop timezone (IANA timezone, e.g., Asia/Karachi, Europe/London,
@@ -7183,6 +9704,40 @@ components:
       - services
       - services_count
       - updated_at
+    ShopEarnings:
+      type: object
+      description: Earnings breakdown for a single shop
+      properties:
+        shop_id:
+          type: string
+          format: uuid
+          description: Shop UUID
+        shop_name:
+          type: string
+          description: Shop name
+        total_bookings:
+          type: integer
+          description: Total number of bookings
+        completed_bookings:
+          type: integer
+          description: Number of completed bookings
+        total_earnings:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Total earnings from completed bookings
+        total_advance_payments:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          description: Total advance payments received (deposits)
+      required:
+      - completed_bookings
+      - shop_id
+      - shop_name
+      - total_advance_payments
+      - total_bookings
+      - total_earnings
     ShopHours:
       type: object
       description: Serializer for shop hours information.
@@ -7572,6 +10127,24 @@ components:
       properties:
         is_primary:
           type: boolean
+    Status67cEnum:
+      enum:
+      - pending
+      - scraping
+      - parsing
+      - completed
+      - creating
+      - confirmed
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `scraping` - Scraping
+        * `parsing` - Parsing with AI
+        * `completed` - Completed
+        * `creating` - Creating Shop
+        * `confirmed` - Shop Created
+        * `failed` - Failed
     Status728Enum:
       enum:
       - pending
@@ -7586,22 +10159,6 @@ components:
         * `cancelled` - Cancelled
         * `completed` - Completed
         * `no_show` - No Show
-    Status82bEnum:
-      enum:
-      - pending
-      - scraping
-      - parsing
-      - completed
-      - confirmed
-      - failed
-      type: string
-      description: |-
-        * `pending` - Pending
-        * `scraping` - Scraping
-        * `parsing` - Parsing with AI
-        * `completed` - Completed
-        * `confirmed` - Shop Created
-        * `failed` - Failed
     StripePriceImportRequest:
       type: object
       description: Serializer for importing subscription plans from Stripe.
@@ -7819,6 +10376,20 @@ components:
       - current_period_end
       - current_period_start
       - status
+    SubscriptionStatusEnum:
+      enum:
+      - active
+      - past_due
+      - canceled
+      - unpaid
+      - trialing
+      type: string
+      description: |-
+        * `active` - Active
+        * `past_due` - Past Due
+        * `canceled` - Canceled
+        * `unpaid` - Unpaid
+        * `trialing` - Trialing
     SuccessResponse:
       type: object
       description: Standard success response with message
@@ -8098,6 +10669,211 @@ components:
         * `customer` - Customer
         * `client` - Shop Owner
         * `staff` - Staff
+    WidgetConfiguration:
+      type: object
+      description: Output serializer for widget configuration
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        shop:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Shop this widget configuration belongs to
+        shop_id:
+          type: string
+          format: uuid
+          readOnly: true
+        shop_name:
+          type: string
+          readOnly: true
+        layout:
+          allOf:
+          - $ref: '#/components/schemas/WidgetConfigurationLayoutEnum'
+          description: |-
+            Widget layout style
+
+            * `card` - Card
+            * `landscape` - Landscape
+            * `minimal` - Minimal
+        primary_color:
+          type: string
+          description: 'Primary color in hex format (e.g., #2563EB)'
+          maxLength: 7
+        widget_width:
+          type: integer
+          maximum: 800
+          minimum: 280
+          description: Widget width in pixels (280-800)
+        border_radius:
+          type: integer
+          maximum: 50
+          minimum: 0
+          description: Border radius in pixels (0-50)
+        banner_image_url:
+          type: string
+          description: Banner image URL (overrides shop cover image)
+        custom_title:
+          type: string
+          description: Custom title (defaults to shop name if empty)
+          maxLength: 255
+        custom_description:
+          type: string
+          description: Custom description (defaults to shop description if empty)
+        button_text:
+          type: string
+          description: Call-to-action button text
+          maxLength: 50
+        logo_url:
+          type: string
+          description: Custom logo URL (overrides shop logo if provided)
+        show_logo:
+          type: boolean
+          description: Display logo in widget
+        text_align:
+          allOf:
+          - $ref: '#/components/schemas/WidgetConfigurationTextAlignEnum'
+          description: |-
+            Text alignment for widget content
+
+            * `left` - Left
+            * `center` - Center
+            * `right` - Right
+        display_title:
+          type: string
+          readOnly: true
+        display_description:
+          type: string
+          readOnly: true
+        display_logo:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          description: Widget is active and can be embedded
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        embed_code:
+          type: string
+          readOnly: true
+      required:
+      - created_at
+      - display_description
+      - display_logo
+      - display_title
+      - embed_code
+      - id
+      - shop
+      - shop_id
+      - shop_name
+      - updated_at
+    WidgetConfigurationLayoutEnum:
+      enum:
+      - card
+      - landscape
+      - minimal
+      type: string
+      description: |-
+        * `card` - Card
+        * `landscape` - Landscape
+        * `minimal` - Minimal
+    WidgetConfigurationTextAlignEnum:
+      enum:
+      - left
+      - center
+      - right
+      type: string
+      description: |-
+        * `left` - Left
+        * `center` - Center
+        * `right` - Right
+    WidgetPreviewRequestLayoutEnum:
+      enum:
+      - card
+      - landscape
+      - minimal
+      type: string
+      description: |-
+        * `card` - card
+        * `landscape` - landscape
+        * `minimal` - minimal
+    WidgetPreviewRequestRequest:
+      type: object
+      description: Input serializer for preview endpoint - allows temporary settings
+      properties:
+        layout:
+          allOf:
+          - $ref: '#/components/schemas/WidgetPreviewRequestLayoutEnum'
+          description: |-
+            Temporary layout to preview
+
+            * `card` - card
+            * `landscape` - landscape
+            * `minimal` - minimal
+        primary_color:
+          type: string
+          minLength: 1
+          description: Temporary primary color to preview (hex format)
+        widget_width:
+          type: integer
+          description: Temporary widget width to preview
+        border_radius:
+          type: integer
+          description: Temporary border radius to preview
+        show_logo:
+          type: boolean
+          description: Temporarily show/hide logo
+        text_align:
+          allOf:
+          - $ref: '#/components/schemas/WidgetPreviewRequestTextAlignEnum'
+          description: |-
+            Temporary text alignment to preview
+
+            * `left` - left
+            * `center` - center
+            * `right` - right
+        button_text:
+          type: string
+          minLength: 1
+          description: Temporary button text to preview
+          maxLength: 50
+    WidgetPreviewRequestTextAlignEnum:
+      enum:
+      - left
+      - center
+      - right
+      type: string
+      description: |-
+        * `left` - left
+        * `center` - center
+        * `right` - right
+    WidgetPreviewResponse:
+      type: object
+      description: Output serializer for preview data
+      properties:
+        preview_url:
+          type: string
+          format: uri
+          description: URL to preview the widget with temporary settings
+        preview_html:
+          type: string
+          description: HTML preview of the widget with applied settings
+        settings:
+          type: object
+          additionalProperties: {}
+          description: Combined settings (saved + temporary) used for preview
+      required:
+      - preview_html
+      - preview_url
+      - settings
   securitySchemes:
     BearerAuth:
       type: http
@@ -8118,6 +10894,8 @@ tags:
   description: Public shop discovery and search
 - name: Shops - Client
   description: Salon owner shop management
+- name: Widget - Client
+  description: Shop owner widget configuration management
 - name: Services - Public
   description: Public service browsing
 - name: Services - Client

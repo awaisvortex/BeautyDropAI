@@ -18,6 +18,7 @@ from .serializers import (
     BookingSerializer,
     BookingListSerializer,
     BookingStatsSerializer,
+    CustomerBookingStatsSerializer,
     DynamicBookingCreateSerializer,
     OwnerRescheduleSerializer,
     StaffReassignSerializer,
@@ -53,6 +54,8 @@ class BookingViewSet(viewsets.GenericViewSet,
             return BookingListSerializer
         elif self.action == 'stats':
             return BookingStatsSerializer
+        elif self.action == 'my_stats':
+            return CustomerBookingStatsSerializer
         return BookingSerializer
     
     def get_queryset(self):
@@ -147,13 +150,13 @@ class BookingViewSet(viewsets.GenericViewSet,
     
     @extend_schema(
         summary="My booking stats",
-        description="Get current customer's booking statistics including upcoming count",
-        responses={200: dict},
+        description="Get current customer's booking statistics including upcoming count and total spending",
+        responses={200: CustomerBookingStatsSerializer},
         tags=['Bookings - Customer']
     )
     @action(detail=False, methods=['get'], permission_classes=[IsCustomer])
     def my_stats(self, request):
-        """Get customer's booking statistics"""
+        """Get customer's booking statistics including total spending"""
         bookings = self.get_queryset()
         now = timezone.now()
         
@@ -178,12 +181,26 @@ class BookingViewSet(viewsets.GenericViewSet,
         # Total
         total = bookings.count()
         
+        # Total spending from completed bookings (full service prices)
+        total_spending = bookings.filter(status='completed').aggregate(
+            total=Sum('total_price')
+        )['total'] or 0
+        
+        # Total advance payments made (deposits from BookingPayment)
+        from apps.payments.models import BookingPayment
+        total_advance_payments = BookingPayment.objects.filter(
+            booking__in=bookings,
+            status='paid'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
         return Response({
             'upcoming': upcoming,
             'past_due': past_due,
             'completed': completed,
             'cancelled': cancelled,
-            'total': total
+            'total': total,
+            'total_spending': float(total_spending),
+            'total_advance_payments': float(total_advance_payments)
         })
     
     @extend_schema(
@@ -809,6 +826,13 @@ class BookingViewSet(viewsets.GenericViewSet,
             total=Sum('total_price')
         )['total'] or 0
         
+        # Total advance payments received for this shop
+        from apps.payments.models import BookingPayment
+        total_advance_payments = BookingPayment.objects.filter(
+            booking__shop_id=shop_id,
+            status='paid'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
         stats = {
             'total_bookings': total_bookings,
             'pending': pending,
@@ -816,7 +840,9 @@ class BookingViewSet(viewsets.GenericViewSet,
             'completed': completed,
             'cancelled': cancelled,
             'no_show': no_show,
-            'total_revenue': float(total_revenue)
+            'total_revenue': float(total_revenue),
+            'total_earnings': float(total_revenue),  # Same as total_revenue, for consistency
+            'total_advance_payments': float(total_advance_payments)
         }
         
         return Response(stats)
