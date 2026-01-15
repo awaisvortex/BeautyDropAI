@@ -1,10 +1,13 @@
 """
 URL configuration for customers app.
 """
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from . import views
 
 app_name = 'customers'
 
-urlpatterns = [
-    # Add your customer-related URL patterns here
-]
+router = DefaultRouter()
+router.register(r'', views.CustomerViewSet, basename='customer')
+
+urlpatterns = router.urls

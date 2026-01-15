@@ -90,7 +90,7 @@ def cancel_unpaid_booking(booking_id: str):
             
             # Send push notification
             send_booking_cancelled_push.delay(
-                user_id=str(customer_user.id),
+                user_id=str(customer_user.pk),
                 title='Booking Cancelled',
                 body=f'Your booking for {item_name} at {shop_name} was cancelled due to incomplete payment.'
             )

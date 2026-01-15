@@ -15,6 +15,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from django.conf import settings
 
 from apps.core.permissions import IsClient
+from apps.core.messages import STRIPE_CONNECT
 from apps.payments.models import ConnectedAccount
 from apps.payments.stripe_connect import stripe_connect_client
 
@@ -28,7 +29,11 @@ logger = logging.getLogger(__name__)
     description="""
     Create a Stripe Connect Express account for the shop owner.
     
-    This is the first step in enabling the owner to receive advance payments.
+    **This is Step 1 of payment setup:**
+    1. ✓ Create Connect Account (you are here)
+    2. Complete onboarding form
+    3. Start receiving payments
+    
     After creating the account, call the account-link endpoint to get the onboarding URL.
     """,
     responses={
@@ -47,7 +52,7 @@ def create_connect_account(request):
         client = user.client_profile
     except Exception:
         return Response(
-            {'error': 'User is not a client/shop owner'},
+            STRIPE_CONNECT['not_shop_owner'],
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -59,6 +64,7 @@ def create_connect_account(request):
             'account_id': connected_account.stripe_account_id,
             'charges_enabled': connected_account.charges_enabled,
             'onboarding_complete': connected_account.onboarding_complete,
+            **STRIPE_CONNECT['already_exists']
         })
     
     # Create Stripe Express account
@@ -73,7 +79,7 @@ def create_connect_account(request):
     
     if not stripe_account:
         return Response(
-            {'error': 'Failed to create Stripe account'},
+            STRIPE_CONNECT['create_failed'],
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     
@@ -92,6 +98,8 @@ def create_connect_account(request):
         'success': True,
         'account_id': connected_account.stripe_account_id,
         'charges_enabled': connected_account.charges_enabled,
+        'message': "Payment account created! Now complete the setup form to start receiving payments.",
+        'next_steps': "Click 'Continue Setup' to verify your identity and add your bank details."
     })
 
 
@@ -99,6 +107,11 @@ def create_connect_account(request):
     summary="Get Onboarding Link",
     description="""
     Get a Stripe onboarding URL for the shop owner.
+    
+    **This is Step 2 of payment setup:**
+    1. ✓ Create Connect Account
+    2. ✓ Complete onboarding form (you are here)
+    3. Start receiving payments
     
     Redirect the owner to this URL to complete identity verification
     and bank account setup. The URL expires after a short time.
@@ -120,7 +133,7 @@ def get_account_link(request):
         connected_account = client.connected_account
     except Exception:
         return Response(
-            {'error': 'No Connect account found. Create one first.'},
+            STRIPE_CONNECT['no_account'],
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -128,8 +141,8 @@ def get_account_link(request):
     if connected_account.charges_enabled and connected_account.details_submitted:
         return Response({
             'already_complete': True,
-            'message': 'Account setup is complete. You can now receive payments.',
             'charges_enabled': True,
+            **STRIPE_CONNECT['onboarding_complete']
         })
     
     # Generate return/refresh URLs
@@ -146,13 +159,14 @@ def get_account_link(request):
     
     if not onboarding_url:
         return Response(
-            {'error': 'Failed to create onboarding link'},
+            STRIPE_CONNECT['onboarding_link_failed'],
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     
     return Response({
         'onboarding_url': onboarding_url,
-        'message': 'Redirect user to this URL to complete setup'
+        'message': "Click the link to complete your payment setup. You'll verify your identity and add your bank details.",
+        'next_steps': "This usually takes about 5 minutes. Have your ID and bank details ready."
     })
 
 
@@ -160,6 +174,11 @@ def get_account_link(request):
     summary="Get Connect Account Status",
     description="""
     Check the status of the shop owner's Connect account.
+    
+    **Status meanings:**
+    - `charges_enabled: true` = Can receive customer payments
+    - `payouts_enabled: true` = Can withdraw to bank account
+    - `details_submitted: true` = Completed onboarding form
     
     Returns whether the account can receive payments and any
     pending requirements.
@@ -180,10 +199,10 @@ def get_account_status(request):
         client = user.client_profile
         connected_account = client.connected_account
     except Exception:
-        return Response(
-            {'has_account': False, 'message': 'No Connect account found'},
-            status=status.HTTP_200_OK
-        )
+        return Response({
+            'has_account': False,
+            **STRIPE_CONNECT['no_account']
+        }, status=status.HTTP_200_OK)
     
     # Get fresh status from Stripe
     stripe_status = stripe_connect_client.get_account_status(
@@ -206,6 +225,14 @@ def get_account_status(request):
         if changed:
             connected_account.save()
     
+    # Build user-friendly status message
+    if connected_account.is_ready_for_payments:
+        status_message = "Your payment setup is complete! You can now receive advance payments from customers."
+    elif connected_account.details_submitted:
+        status_message = "Your information is being reviewed. This usually takes 1-2 business days."
+    else:
+        status_message = "Your payment setup is not complete. Click 'Continue Setup' to finish."
+    
     return Response({
         'has_account': True,
         'account_id': connected_account.stripe_account_id,
@@ -214,6 +241,7 @@ def get_account_status(request):
         'details_submitted': connected_account.details_submitted,
         'is_ready_for_payments': connected_account.is_ready_for_payments,
         'requirements': stripe_status.get('requirements', {}),
+        'message': status_message,
     })
 
 
@@ -222,7 +250,11 @@ def get_account_status(request):
     description="""
     Get a link to the Stripe Express Dashboard for the shop owner.
     
-    Allows owners to view their earnings, pending payouts, and settings.
+    The dashboard allows owners to:
+    - View their earnings and transaction history
+    - Check pending payouts and payout schedule
+    - Update bank account and payout settings
+    - Download tax documents
     """,
     responses={
         200: OpenApiResponse(description="Dashboard URL returned"),
@@ -241,7 +273,7 @@ def get_dashboard_link(request):
         connected_account = client.connected_account
     except Exception:
         return Response(
-            {'error': 'No Connect account found'},
+            STRIPE_CONNECT['no_account'],
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -251,10 +283,11 @@ def get_dashboard_link(request):
     
     if not dashboard_url:
         return Response(
-            {'error': 'Failed to create dashboard link'},
+            STRIPE_CONNECT['dashboard_link_failed'],
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     
     return Response({
         'dashboard_url': dashboard_url,
+        'message': "View your earnings, pending payouts, and payment settings.",
     })

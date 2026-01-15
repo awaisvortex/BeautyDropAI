@@ -30,6 +30,7 @@ urlpatterns = [
     path('api/v1/calendars/', include('apps.calendars.urls')),
     path('api/v1/agent/', include('apps.agent.urls')),
     path('api/v1/scraper/', include('apps.scraper.urls')),
+    path('api/v1/contact/', include('apps.contact_us.urls')),
     
     # Media proxy for serving GCS images
     path('api/media/', include('apps.core.urls')),

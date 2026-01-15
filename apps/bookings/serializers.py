@@ -310,13 +310,43 @@ class BookingRescheduleSerializer(serializers.Serializer):
 
 
 class BookingStatsSerializer(serializers.Serializer):
-    """Output serializer for booking statistics"""
-    total_bookings = serializers.IntegerField()
-    pending_bookings = serializers.IntegerField()
-    confirmed_bookings = serializers.IntegerField()
-    completed_bookings = serializers.IntegerField()
-    cancelled_bookings = serializers.IntegerField()
-    total_revenue = serializers.DecimalField(max_digits=10, decimal_places=2)
+    """Output serializer for shop booking statistics (salon owners)"""
+    total_bookings = serializers.IntegerField(help_text="Total number of bookings")
+    pending = serializers.IntegerField(help_text="Pending bookings count")
+    confirmed = serializers.IntegerField(help_text="Confirmed bookings count")
+    completed = serializers.IntegerField(help_text="Completed bookings count")
+    cancelled = serializers.IntegerField(help_text="Cancelled bookings count")
+    no_show = serializers.IntegerField(help_text="No-show bookings count")
+    total_revenue = serializers.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Total revenue from completed bookings (same as total_earnings)"
+    )
+    total_earnings = serializers.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Total earnings from completed bookings at this shop"
+    )
+    total_advance_payments = serializers.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Total advance payments received (deposits)"
+    )
+
+
+class CustomerBookingStatsSerializer(serializers.Serializer):
+    """Output serializer for customer booking statistics"""
+    upcoming = serializers.IntegerField(help_text="Number of upcoming bookings (pending/confirmed)")
+    past_due = serializers.IntegerField(help_text="Past bookings still pending/confirmed")
+    completed = serializers.IntegerField(help_text="Completed bookings count")
+    cancelled = serializers.IntegerField(help_text="Cancelled bookings count")
+    total = serializers.IntegerField(help_text="Total number of bookings")
+    total_spending = serializers.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Total amount spent on completed bookings (full service prices)"
+    )
+    total_advance_payments = serializers.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Total advance payments made (deposits)"
+    )
+
 
 
 # ============================================
