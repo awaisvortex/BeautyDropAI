@@ -2100,6 +2100,177 @@ paths:
           description: ''
         '404':
           description: Client profile not found
+  /api/v1/customers/favorites/:
+    get:
+      operationId: v1_customers_favorites_list
+      description: Get list of all shops the customer has marked as favorite
+      summary: Get favorite shops
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Customers
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedShopList'
+          description: ''
+  /api/v1/customers/favorites/{shop_id}/add/:
+    post:
+      operationId: v1_customers_favorites_add_create
+      description: Add a shop to the customer's favorites list
+      summary: Add shop to favorites
+      parameters:
+      - in: path
+        name: shop_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Customers
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Shop added to favorites
+              examples:
+                SuccessResponse:
+                  value:
+                    message: Shop added to favorites
+                    shop_id: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    shop_name: Elegant Salon
+                    favorites_count: 5
+                  summary: Success Response
+          description: ''
+        '400':
+          description: Shop already in favorites
+        '404':
+          description: Shop not found
+  /api/v1/customers/favorites/{shop_id}/remove/:
+    post:
+      operationId: v1_customers_favorites_remove_create
+      description: Remove a shop from the customer's favorites list
+      summary: Remove shop from favorites
+      parameters:
+      - in: path
+        name: shop_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Customers
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Shop removed from favorites
+              examples:
+                SuccessResponse:
+                  value:
+                    message: Shop removed from favorites
+                    shop_id: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    favorites_count: 4
+                  summary: Success Response
+          description: ''
+        '400':
+          description: Shop not in favorites
+        '404':
+          description: Shop not found
+  /api/v1/customers/favorites/{shop_id}/toggle/:
+    post:
+      operationId: v1_customers_favorites_toggle_create
+      description: Toggle a shop's favorite status. Adds if not in favorites, removes
+        if already favorited.
+      summary: Toggle shop favorite
+      parameters:
+      - in: path
+        name: shop_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - Customers
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Favorite status toggled
+              examples:
+                AddedToFavorites:
+                  value:
+                    message: Shop added to favorites
+                    shop_id: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    shop_name: Elegant Salon
+                    is_favorite: true
+                    favorites_count: 5
+                  summary: Added to favorites
+                RemovedFromFavorites:
+                  value:
+                    message: Shop removed from favorites
+                    shop_id: e188f3d1-921d-4261-9ea5-d6cfad62962a
+                    shop_name: Elegant Salon
+                    is_favorite: false
+                    favorites_count: 4
+                  summary: Removed from favorites
+          description: ''
+        '404':
+          description: Shop not found
+  /api/v1/customers/me/:
+    get:
+      operationId: v1_customers_me_retrieve
+      description: Get the current customer's profile
+      summary: Get my profile
+      tags:
+      - Customers
+      security:
+      - BearerAuth: []
+      - ClerkUserAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+          description: ''
   /api/v1/notifications/:
     get:
       operationId: v1_notifications_list
@@ -7157,6 +7328,65 @@ components:
       - plan_name
       - shops_count
       - status
+    Customer:
+      type: object
+      description: Serializer for Customer model
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          readOnly: true
+        user_email:
+          type: string
+          format: email
+          readOnly: true
+        user_name:
+          type: string
+          readOnly: true
+        phone:
+          type: string
+          maxLength: 20
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        subscription_status:
+          allOf:
+          - $ref: '#/components/schemas/SubscriptionStatusEnum'
+          readOnly: true
+        subscription_plan:
+          type: string
+          readOnly: true
+        subscription_expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        favorite_shops_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - favorite_shops_count
+      - id
+      - subscription_expires_at
+      - subscription_plan
+      - subscription_status
+      - updated_at
+      - user
+      - user_email
+      - user_name
     CustomerBookingStats:
       type: object
       description: Output serializer for customer booking statistics
