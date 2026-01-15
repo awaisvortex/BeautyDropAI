@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.db.models import Sum, Q
 
 from apps.core.permissions import IsCustomer, IsClient, IsBookingOwner
+from apps.core.messages import BOOKING as BOOKING_MESSAGES, PROFILE
 from apps.payments.booking_payment_service import booking_payment_service
 from .models import Booking
 from .serializers import (
@@ -397,7 +398,11 @@ class BookingViewSet(viewsets.GenericViewSet,
         """
         if request.user.role != 'customer':
             return Response(
-                {'error': 'Only customers can create bookings'},
+                {
+                    'error': 'This feature is for customers only.',
+                    'message': 'You need a customer account to make bookings.',
+                    'next_steps': 'Please sign in with your customer account or create one.'
+                },
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -427,7 +432,7 @@ class BookingViewSet(viewsets.GenericViewSet,
         # Check if shop is open
         if not availability_service.is_shop_open():
             return Response(
-                {'error': 'Shop is closed on this date'},
+                BOOKING_MESSAGES['shop_closed'],
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -439,12 +444,12 @@ class BookingViewSet(viewsets.GenericViewSet,
             eligible_staff = availability_service._get_eligible_staff()
             if not eligible_staff.exists():
                 return Response(
-                    {'error': 'No staff available for this service. Please assign staff members to this service first.'},
+                    BOOKING_MESSAGES['no_staff_for_service'],
                     status=status.HTTP_400_BAD_REQUEST
                 )
             # Otherwise, shop is closed or all slots are booked
             return Response(
-                {'error': 'No available slots on this date. The shop may be closed or fully booked.'},
+                BOOKING_MESSAGES['slot_not_available'],
                 status=status.HTTP_400_BAD_REQUEST
             )
         

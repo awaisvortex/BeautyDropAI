@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
 
 from apps.core.permissions import IsCustomer
+from apps.core.messages import PROFILE, SHOP as SHOP_MESSAGES
 from apps.shops.serializers import ShopSerializer
 from .models import Customer
 from .serializers import CustomerSerializer, CustomerUpdateSerializer
@@ -49,7 +50,7 @@ class CustomerViewSet(viewsets.GenericViewSet):
             return Response(CustomerSerializer(customer).data)
         except Customer.DoesNotExist:
             return Response(
-                {'error': 'Customer profile not found'},
+                PROFILE['customer_not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
     
@@ -66,7 +67,7 @@ class CustomerViewSet(viewsets.GenericViewSet):
             customer = request.user.customer_profile
         except Customer.DoesNotExist:
             return Response(
-                {'error': 'Customer profile not found'},
+                PROFILE['customer_not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
         
@@ -104,7 +105,7 @@ class CustomerViewSet(viewsets.GenericViewSet):
             customer = request.user.customer_profile
         except Customer.DoesNotExist:
             return Response(
-                {'error': 'Customer profile not found'},
+                PROFILE['customer_not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
         
@@ -113,13 +114,13 @@ class CustomerViewSet(viewsets.GenericViewSet):
             shop = Shop.objects.get(id=shop_id, is_active=True)
         except Shop.DoesNotExist:
             return Response(
-                {'error': 'Shop not found or not active'},
+                SHOP_MESSAGES['not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
         
         if customer.favorite_shops.filter(id=shop_id).exists():
             return Response(
-                {'error': 'Shop is already in favorites'},
+                SHOP_MESSAGES['already_favorite'],
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -161,7 +162,7 @@ class CustomerViewSet(viewsets.GenericViewSet):
             customer = request.user.customer_profile
         except Customer.DoesNotExist:
             return Response(
-                {'error': 'Customer profile not found'},
+                PROFILE['customer_not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
         
@@ -170,13 +171,13 @@ class CustomerViewSet(viewsets.GenericViewSet):
             shop = Shop.objects.get(id=shop_id)
         except Shop.DoesNotExist:
             return Response(
-                {'error': 'Shop not found'},
+                SHOP_MESSAGES['not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
         
         if not customer.favorite_shops.filter(id=shop_id).exists():
             return Response(
-                {'error': 'Shop is not in favorites'},
+                SHOP_MESSAGES['not_in_favorites'],
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -229,7 +230,7 @@ class CustomerViewSet(viewsets.GenericViewSet):
             customer = request.user.customer_profile
         except Customer.DoesNotExist:
             return Response(
-                {'error': 'Customer profile not found'},
+                PROFILE['customer_not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
         
@@ -238,7 +239,7 @@ class CustomerViewSet(viewsets.GenericViewSet):
             shop = Shop.objects.get(id=shop_id, is_active=True)
         except Shop.DoesNotExist:
             return Response(
-                {'error': 'Shop not found or not active'},
+                SHOP_MESSAGES['not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
         

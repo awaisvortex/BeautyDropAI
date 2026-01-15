@@ -88,7 +88,11 @@ def set_user_role(request):
     # Check if role is already set
     if request.user.role and request.user.role != 'customer':
         return Response(
-            {'error': 'Role already set and cannot be changed'},
+            {
+                'error': 'Your account type is already set.',
+                'message': f'You are registered as a {request.user.role}.',
+                'next_steps': 'If you need to change your account type, please contact support.'
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
     

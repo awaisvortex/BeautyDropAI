@@ -153,7 +153,11 @@ class ShopViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         if request.user.role != 'client':
             return Response(
-                {'error': 'Only salon owners can create shops'},
+                {
+                    'error': 'This feature is for salon owners only.',
+                    'message': 'You need a salon owner account to create shops.',
+                    'next_steps': 'Please sign in with your salon owner account or register as one.'
+                },
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -165,7 +169,11 @@ class ShopViewSet(viewsets.ModelViewSet):
             cover_image_url = gcs_storage.upload_image(image_file, folder='shops/covers')
             if not cover_image_url:
                 return Response(
-                    {'error': 'Failed to upload cover image. Please check file type and size.'},
+                    {
+                        'error': 'We couldn\'t upload your image.',
+                        'message': 'Please make sure your image is a JPEG, PNG, or WebP file under 5MB.',
+                        'next_steps': 'Try a different image or resize your current one.'
+                    },
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
@@ -218,7 +226,11 @@ class ShopViewSet(viewsets.ModelViewSet):
             cover_image_url = gcs_storage.upload_image(image_file, folder='shops/covers')
             if not cover_image_url:
                 return Response(
-                    {'error': 'Failed to upload cover image. Please check file type and size.'},
+                    {
+                        'error': 'We couldn\'t upload your image.',
+                        'message': 'Please make sure your image is a JPEG, PNG, or WebP file under 5MB.',
+                        'next_steps': 'Try a different image or resize your current one.'
+                    },
                     status=status.HTTP_400_BAD_REQUEST
                 )
             

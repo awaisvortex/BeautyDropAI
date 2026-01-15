@@ -9,8 +9,11 @@ paths:
     get:
       operationId: payments_connect_account_link_retrieve
       description: "\n    Get a Stripe onboarding URL for the shop owner.\n    \n\
-        \    Redirect the owner to this URL to complete identity verification\n  \
-        \  and bank account setup. The URL expires after a short time.\n    "
+        \    **This is Step 2 of payment setup:**\n    1. ✓ Create Connect Account\n\
+        \    2. ✓ Complete onboarding form (you are here)\n    3. Start receiving\
+        \ payments\n    \n    Redirect the owner to this URL to complete identity\
+        \ verification\n    and bank account setup. The URL expires after a short\
+        \ time.\n    "
       summary: Get Onboarding Link
       tags:
       - Payments - Connect
@@ -26,8 +29,9 @@ paths:
     post:
       operationId: payments_connect_create_account_create
       description: "\n    Create a Stripe Connect Express account for the shop owner.\n\
-        \    \n    This is the first step in enabling the owner to receive advance\
-        \ payments.\n    After creating the account, call the account-link endpoint\
+        \    \n    **This is Step 1 of payment setup:**\n    1. ✓ Create Connect Account\
+        \ (you are here)\n    2. Complete onboarding form\n    3. Start receiving\
+        \ payments\n    \n    After creating the account, call the account-link endpoint\
         \ to get the onboarding URL.\n    "
       summary: Create Connect Account
       tags:
@@ -44,8 +48,10 @@ paths:
     get:
       operationId: payments_connect_dashboard_retrieve
       description: "\n    Get a link to the Stripe Express Dashboard for the shop\
-        \ owner.\n    \n    Allows owners to view their earnings, pending payouts,\
-        \ and settings.\n    "
+        \ owner.\n    \n    The dashboard allows owners to:\n    - View their earnings\
+        \ and transaction history\n    - Check pending payouts and payout schedule\n\
+        \    - Update bank account and payout settings\n    - Download tax documents\n\
+        \    "
       summary: Get Dashboard Link
       tags:
       - Payments - Connect
@@ -61,7 +67,10 @@ paths:
     get:
       operationId: payments_connect_status_retrieve
       description: "\n    Check the status of the shop owner's Connect account.\n\
-        \    \n    Returns whether the account can receive payments and any\n    pending\
+        \    \n    **Status meanings:**\n    - `charges_enabled: true` = Can receive\
+        \ customer payments\n    - `payouts_enabled: true` = Can withdraw to bank\
+        \ account\n    - `details_submitted: true` = Completed onboarding form\n \
+        \   \n    Returns whether the account can receive payments and any\n    pending\
         \ requirements.\n    "
       summary: Get Connect Account Status
       tags:
@@ -1621,8 +1630,8 @@ paths:
   /api/v1/calendars/calendars/:
     get:
       operationId: v1_calendars_calendars_list
-      description: Get list of available Google Calendars for the connected account.
-        Use the 'id' field to update settings.
+      description: Get list of available Google Calendars. Use this to let users choose
+        which calendar to sync bookings to. The 'id' field is what you pass to update_settings.
       summary: List Google Calendars
       tags:
       - Calendars
@@ -1663,9 +1672,12 @@ paths:
   /api/v1/calendars/google/connect/:
     post:
       operationId: v1_calendars_google_connect_create
-      description: Connect Google Calendar using OAuth tokens fetched automatically
-        from Clerk. User must have signed in with Google via Clerk SSO with calendar
-        permissions.
+      description: "\n        Connect Google Calendar using OAuth tokens fetched automatically\
+        \ from Clerk.\n        \n        **Prerequisites:**\n        - You must be\
+        \ signed in with Google via Clerk SSO\n        - Calendar permissions must\
+        \ be granted during sign-in\n        \n        **If connection fails:**\n\
+        \        - Sign out and sign back in using Google\n        - Make sure to\
+        \ allow calendar access when prompted\n        "
       summary: Connect Google Calendar
       tags:
       - Calendars
@@ -1703,7 +1715,8 @@ paths:
   /api/v1/calendars/google/disconnect/:
     post:
       operationId: v1_calendars_google_disconnect_create
-      description: Remove Google Calendar integration and stop syncing bookings.
+      description: Remove Google Calendar integration and stop syncing bookings. Your
+        calendar events created by this app will remain.
       summary: Disconnect Google Calendar
       tags:
       - Calendars
@@ -1720,7 +1733,8 @@ paths:
   /api/v1/calendars/settings/:
     patch:
       operationId: v1_calendars_settings_partial_update
-      description: Update sync preferences like calendar ID and enabled status.
+      description: Update sync preferences like which calendar to sync to and whether
+        sync is enabled.
       summary: Update Calendar Settings
       tags:
       - Calendars
@@ -1773,8 +1787,8 @@ paths:
   /api/v1/calendars/status/:
     get:
       operationId: v1_calendars_status_retrieve
-      description: Get the current user's calendar integration status. Returns default
-        values if no integration exists.
+      description: Get the current user's calendar integration status. Check if Google
+        Calendar is connected and syncing.
       summary: Get Calendar Integration Status
       tags:
       - Calendars
@@ -1807,7 +1821,7 @@ paths:
     post:
       operationId: v1_calendars_sync_create
       description: Manually sync all future confirmed bookings to Google Calendar.
-        Returns immediately, sync runs in background.
+        The sync runs in the background - you'll see events appear within a few minutes.
       summary: Sync All Bookings
       tags:
       - Calendars

@@ -9,6 +9,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from django.db.models import Sum, Count
 
 from apps.core.permissions import IsClient
+from apps.core.messages import PROFILE
 from .models import Client
 from .serializers import (
     ClientSerializer,
@@ -57,7 +58,7 @@ class ClientViewSet(viewsets.ModelViewSet):
             return Response(ClientSerializer(client).data)
         except Client.DoesNotExist:
             return Response(
-                {'error': 'Client profile not found'},
+                PROFILE['client_not_found'],
                 status=status.HTTP_404_NOT_FOUND
             )
     
